@@ -1,7 +1,4 @@
-import React, { ReactNode } from 'react'
-import Header from './Header'
-import Sidebar from './Sidebar'
-import Footer from './Footer'
+import type { ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -9,13 +6,10 @@ interface Props {
 
 const Layout: React.FC<Props> = ({ children }) => {
   return (
-    <div className="app-root">
-      <Header title="IndiNotes" />
-      <div className="app-body">
-        <Sidebar items={[{ id: 'home', label: 'Home' }, { id: 'workspaces', label: 'Workspaces' }]} />
-        <main className="app-main">{children}</main>
+    <div className="app-root" style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="app-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <main className="app-main" style={{ flex: 1, width: '100%', overflow: 'hidden' }}>{children}</main>
       </div>
-      <Footer />
     </div>
   )
 }
