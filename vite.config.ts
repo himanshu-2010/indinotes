@@ -9,7 +9,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.png', 'logo-192.png', 'logo-512.png'],
       manifest: {
         name: 'IndiNotes',
         short_name: 'IndiNotes',
