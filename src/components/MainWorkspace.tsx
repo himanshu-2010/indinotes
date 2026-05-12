@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState, useEffect } from 'react'
 import Sidebar from './Sidebar'
 import useNotesStore from '../stores/notesStore'
 import CanvasEditor from './CanvasEditor'
@@ -30,9 +30,8 @@ const MainWorkspace: React.FC<Props> = (_props) => {
   const [shapeType, setShapeType] = useState<'rect' | 'circle' | 'triangle' | 'pentagon' | 'arrow'>('rect')
   const [canvasSelectedId, setCanvasSelectedId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(100)
-  
-  const [drawSettings, setDrawSettings] = useState({
-    color: '#000000',
+
+  const [drawSettings, setDrawSettings] = useState({    color: '#000000',
     width: 2,
     mode: 'pen' as const,
   })
@@ -47,6 +46,18 @@ const MainWorkspace: React.FC<Props> = (_props) => {
   const [shapeColor, setShapeColor] = useState('#0ea5a4')
   const [canvasBgColor, setCanvasBgColor] = useState('#1e1e1e')
   const [showGrid, setShowGrid] = useState(true)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  const [showSidebar, setShowSidebar] = useState(window.innerWidth >= 768)
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (!mobile) setShowSidebar(true)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   const selected = chapters.find((n: any) => n.id === selectedId)
 
@@ -121,24 +132,49 @@ const MainWorkspace: React.FC<Props> = (_props) => {
     reader.readAsDataURL(file)
   }
 
-  const exportPDF = () => {
+  const exportContent = (format: 'pdf' | 'png' | 'json') => {
     if (!selected) return
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [800, 600] })
-    if (activeTab === 'canvas' && editorRef.current) {
+    const filename = selected.title || 'chapter'
+    
+    if (format === 'png' && activeTab === 'canvas' && editorRef.current) {
       const imgData = editorRef.current.getStageImage()
       if (imgData) {
-        doc.addImage(imgData, 'PNG', 0, 0, 800, 600)
-        doc.save((selected.title || 'note') + '-canvas.pdf')
+        const link = document.createElement('a')
+        link.download = filename + '.png'
+        link.href = imgData
+        link.click()
         return
       }
     }
-    doc.setFontSize(24)
-    doc.text(selected.title || 'Untitled', 40, 40)
-    doc.setFontSize(14)
-    if (activeTab === 'graph') {
-      doc.text(`Graph Formula: y = ${noteData.graph.formula}`, 40, 80)
+    
+    if (format === 'pdf') {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [800, 600] })
+      if (activeTab === 'canvas' && editorRef.current) {
+        const imgData = editorRef.current.getStageImage()
+        if (imgData) {
+          doc.addImage(imgData, 'PNG', 0, 0, 800, 600)
+          doc.save(filename + '-canvas.pdf')
+          return
+        }
+      }
+      doc.setFontSize(24)
+      doc.text(selected.title || 'Untitled', 40, 40)
+      doc.setFontSize(14)
+      if (activeTab === 'graph') {
+        doc.text(`Graph: y = ${noteData.graph.lines?.[0]?.formula || 'sin(x)'}`, 40, 80)
+      }
+      doc.save(filename + '.pdf')
     }
-    doc.save((selected.title || 'note') + '.pdf')
+    
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify({ chapter: selected, elements: noteData.elements, graph: noteData.graph, settings: noteData.settings }, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.download = filename + '.json'
+      link.href = url
+      link.click()
+      URL.revokeObjectURL(url)
+    }
   }
 
   const clearAll = () => {
@@ -155,40 +191,89 @@ const MainWorkspace: React.FC<Props> = (_props) => {
 
   const fontFamilies = ['Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Poppins', 'Comic Neue', 'Arial']
 
-return (
-    <section className="main-workspace" style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
-      <Sidebar
-        items={chapters.map((n: any) => ({ id: n.id, label: n.title, priorityColor: n.priorityColor }))}
-        selectedId={selectedId}
-        onSelect={(id) => selectChapter(id)}
-        onNewChapter={() => createChapter('Untitled')}
-        onDeleteChapter={(ids) => {
-          if (ids.length === 0) return
-          if (confirm(`Delete ${ids.length} chapter(s)? This cannot be undone.`)) {
-            ids.forEach(id => deleteChapter(id))
-            if (ids.includes(selectedId || '')) {
-              selectChapter(undefined)
-            }
-          }
-        }}
-        onPriorityChange={(id, color) => {
-          const chapter = chapters.find((c: any) => c.id === id)
-          if (chapter) {
-            const parsed = JSON.parse(chapter.content || '{}')
-            const updatedContent = JSON.stringify({ ...parsed, priorityColor: color })
-            updateChapter(id, { content: updatedContent, priorityColor: color }, false)
-          }
-        }}
-        showDelete={!!selected}
-      />
+  return (
+    <section className="main-workspace" style={{ height: '100%', display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      {(!isMobile || showSidebar) && (
+        <div style={{
+          position: isMobile ? 'absolute' : 'relative',
+          zIndex: 1000,
+          height: '100%',
+          width: isMobile ? '80%' : '22%',
+          minWidth: isMobile ? '240px' : '200px',
+          maxWidth: isMobile ? '300px' : '300px',
+          transition: 'transform 0.3s ease-in-out',
+          boxShadow: isMobile ? '4px 0 15px rgba(0,0,0,0.5)' : 'none'
+        }}>
+          <Sidebar
+            items={chapters.map((n: any) => ({ id: n.id, label: n.title, priorityColor: n.priorityColor }))}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              selectChapter(id)
+              if (isMobile) setShowSidebar(false)
+            }}
+            onNewChapter={() => createChapter('Untitled')}
+            onDeleteChapter={(ids) => {
+              if (ids.length === 0) return
+              if (confirm(`Delete ${ids.length} chapter(s)? This cannot be undone.`)) {
+                ids.forEach(id => deleteChapter(id))
+                if (ids.includes(selectedId || '')) {
+                  selectChapter(undefined)
+                }
+              }
+            }}
+            onPriorityChange={(id, color) => {
+              const chapter = chapters.find((c: any) => c.id === id)
+              if (chapter) {
+                const parsed = JSON.parse(chapter.content || '{}')
+                const updatedContent = JSON.stringify({ ...parsed, priorityColor: color })
+                updateChapter(id, { content: updatedContent, priorityColor: color }, false)
+              }
+            }}
+            showDelete={!!selected}
+          />
+        </div>
+      )}
+      
+      {isMobile && showSidebar && (
+        <div 
+          onClick={() => setShowSidebar(false)}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            zIndex: 999
+          }}
+        />
+      )}
+
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {isMobile && (
+              <button 
+                onClick={() => setShowSidebar(!showSidebar)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text)',
+                  fontSize: 24,
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                ☰
+              </button>
+            )}
             {selected && (
               <input
                 value={selected.title || ''}
                 onChange={(e) => updateChapter(selected.id, { title: e.target.value })}
-                style={{ fontSize: 16, fontWeight: 'bold', background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none', width: 160 }}
+                style={{ fontSize: 16, fontWeight: 'bold', background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none', width: isMobile ? 100 : 160 }}
                 placeholder="Chapter title..."
               />
             )}
@@ -200,7 +285,16 @@ return (
                 <button onClick={() => setActiveTab('graph')} style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: activeTab === 'graph' ? 'var(--accent)' : 'transparent', color: activeTab === 'graph' ? '#fff' : 'var(--muted)', cursor: 'pointer', fontSize: 13 }}>Graph</button>
               </div>
             )}
-            <button onClick={exportPDF} disabled={!selected} style={{ padding: '6px 12px', borderRadius: 6, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', cursor: selected ? 'pointer' : 'not-allowed', fontSize: 13 }}>Export</button>
+            <select 
+            onChange={(e) => { if (e.target.value) { exportContent(e.target.value as any); e.target.value = ''; } }}
+            disabled={!selected}
+            style={{ padding: '6px 12px', borderRadius: 6, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', cursor: selected ? 'pointer' : 'not-allowed', fontSize: 13 }}
+          >
+            <option value="">Export</option>
+            <option value="png">PNG</option>
+            <option value="pdf">PDF</option>
+            <option value="json">JSON</option>
+          </select>
           </div>
         </div>
 
@@ -208,14 +302,31 @@ return (
           {!selected ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 16 }}>Select or create a chapter to begin.</div>
           ) : (
-            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+            <div style={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column' }}>
               {activeTab === 'canvas' && (
-                <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8, padding: '8px 16px', background: 'rgba(15, 23, 32, 0.9)', backdropFilter: 'blur(10px)', border: '1px solid var(--border)', borderRadius: 12, zIndex: 100, alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: 4, paddingRight: 8, borderRight: '1px solid var(--border)' }}>
+                <div style={{ 
+                  position: 'absolute', 
+                  top: isMobile ? 8 : 16, 
+                  left: '50%', 
+                  transform: 'translateX(-50%) scale(' + (isMobile ? '0.8' : '1') + ')', 
+                  display: 'flex', 
+                  gap: 8, 
+                  padding: isMobile ? '4px 8px' : '8px 16px', 
+                  background: 'rgba(15, 23, 32, 0.9)', 
+                  backdropFilter: 'blur(10px)', 
+                  border: '1px solid var(--border)', 
+                  borderRadius: 12, 
+                  zIndex: 100, 
+                  alignItems: 'center',
+                  maxWidth: '95vw',
+                  overflowX: 'auto',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
+                }}>
+                  <div style={{ display: 'flex', gap: 4, paddingRight: isMobile ? 4 : 8, borderRight: '1px solid var(--border)' }}>
                     <button onClick={undo} disabled={!canUndo()} title="Undo (Ctrl+Z)" style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: canUndo() ? 'transparent' : 'rgba(255,255,255,0.05)', color: canUndo() ? 'var(--text)' : 'var(--muted)', cursor: canUndo() ? 'pointer' : 'not-allowed' }}>↩️</button>
                     <button onClick={redo} disabled={!canRedo()} title="Redo (Ctrl+Y)" style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: canRedo() ? 'transparent' : 'rgba(255,255,255,0.05)', color: canRedo() ? 'var(--text)' : 'var(--muted)', cursor: canRedo() ? 'pointer' : 'not-allowed' }}>↪️</button>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, paddingRight: 12, borderRight: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: 6, paddingRight: isMobile ? 4 : 12, borderRight: '1px solid var(--border)' }}>
                     <button onClick={() => setTool('select')} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: tool === 'select' ? 'var(--accent)' : 'transparent', color: tool === 'select' ? '#fff' : 'var(--muted)', cursor: 'pointer' }}>🖐️</button>
                     <button onClick={() => setTool('pen')} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: tool === 'pen' ? 'var(--accent)' : 'transparent', color: tool === 'pen' ? '#fff' : 'var(--muted)', cursor: 'pointer' }}>✏️</button>
                     <button onClick={() => setTool('eraser')} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: tool === 'eraser' ? 'var(--accent)' : 'transparent', color: tool === 'eraser' ? '#fff' : 'var(--muted)', cursor: 'pointer' }}>🧼</button>
@@ -225,17 +336,17 @@ return (
                     <button onClick={() => fileInputRef.current?.click()} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}>🖼️</button>
                     <input type="file" ref={fileInputRef} onChange={handleImageUpload} style={{ display: 'none' }} accept="image/*" />
                   </div>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: isMobile ? 6 : 10, alignItems: 'center' }}>
                     {tool === 'pen' && <input type="color" value={drawSettings.color} onChange={(e) => setDrawSettings({...drawSettings, color: e.target.value})} style={{ border: 'none', background: 'none', width: 24, height: 24, cursor: 'pointer' }} />}
-                    {tool === 'pen' && <input type="range" min={1} max={20} value={drawSettings.width} onChange={(e) => setDrawSettings({...drawSettings, width: parseInt(e.target.value)})} style={{ width: 60 }} />}
+                    {tool === 'pen' && !isMobile && <input type="range" min={1} max={20} value={drawSettings.width} onChange={(e) => setDrawSettings({...drawSettings, width: parseInt(e.target.value)})} style={{ width: 60 }} />}
                     {tool === 'shape' && (
                       <>
-                        <select value={shapeType} onChange={(e) => setShapeType(e.target.value as any)} style={{ background: 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 8px' }}>
-                          <option value="rect">Rectangle</option>
-                          <option value="circle">Circle</option>
-                          <option value="triangle">Triangle</option>
-                          <option value="pentagon">Pentagon</option>
-                          <option value="arrow">Arrow</option>
+                        <select value={shapeType} onChange={(e) => setShapeType(e.target.value as any)} style={{ background: 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: isMobile ? 11 : 13 }}>
+                          <option value="rect">Rect</option>
+                          <option value="circle">Circ</option>
+                          <option value="triangle">Tri</option>
+                          <option value="pentagon">Pent</option>
+                          <option value="arrow">Arr</option>
                         </select>
                         <input type="color" value={shapeColor} onChange={(e) => setShapeColor(e.target.value)} style={{ border: 'none', background: 'none', width: 24, height: 24, cursor: 'pointer' }} />
                       </>
@@ -243,32 +354,42 @@ return (
                     {tool === 'text' && (
                       <>
                         <input type="color" value={textSettings.color} onChange={(e) => setTextSettings({...textSettings, color: e.target.value})} style={{ border: 'none', background: 'none', width: 24, height: 24, cursor: 'pointer' }} />
-                        <select value={textSettings.fontSize} onChange={(e) => setTextSettings({...textSettings, fontSize: parseInt(e.target.value)})} style={{ background: 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 8px' }}>{[12, 16, 20, 24, 32, 48].map(s => <option key={s} value={s}>{s}px</option>)}</select>
-                        <select value={textSettings.fontFamily} onChange={(e) => setTextSettings({...textSettings, fontFamily: e.target.value})} style={{ background: 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 8px', maxWidth: 100 }}>{fontFamilies.map(f => <option key={f} value={f}>{f}</option>)}</select>
+                        {!isMobile && <select value={textSettings.fontSize} onChange={(e) => setTextSettings({...textSettings, fontSize: parseInt(e.target.value)})} style={{ background: 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 8px' }}>{[12, 16, 20, 24, 32, 48].map(s => <option key={s} value={s}>{s}px</option>)}</select>}
+                        {!isMobile && <select value={textSettings.fontFamily} onChange={(e) => setTextSettings({...textSettings, fontFamily: e.target.value})} style={{ background: 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 8px', maxWidth: 100 }}>{fontFamilies.map(f => <option key={f} value={f}>{f}</option>)}</select>}
                       </>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 8, paddingLeft: 12, borderLeft: '1px solid var(--border)', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 8, paddingLeft: isMobile ? 4 : 12, borderLeft: '1px solid var(--border)', alignItems: 'center' }}>
                     <input type="color" value={canvasBgColor} onChange={(e) => handleSettingsChange(e.target.value, showGrid)} style={{ border: '1px solid var(--border)', background: 'none', width: 20, height: 20, cursor: 'pointer', borderRadius: 4 }} />
-                    <button onClick={() => handleSettingsChange(canvasBgColor, !showGrid)} style={{ padding: '4px 8px', background: showGrid ? 'var(--accent)' : 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 10 }}>GRID</button>
+                    {!isMobile && <button onClick={() => handleSettingsChange(canvasBgColor, !showGrid)} style={{ padding: '4px 8px', background: showGrid ? 'var(--accent)' : 'var(--panel)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 10 }}>GRID</button>}
                   </div>
-                  <div style={{ display: 'flex', gap: 8, paddingLeft: 12, borderLeft: '1px solid var(--border)' }}>
-                    {canvasSelectedId && <button onClick={deleteSelected} style={{ padding: '6px 12px', background: 'rgba(211, 47, 47, 0.2)', color: '#ff5252', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' }}>Delete</button>}
-                    <button onClick={clearAll} style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.05)', color: 'var(--muted)', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Clear</button>
+                  <div style={{ display: 'flex', gap: 8, paddingLeft: isMobile ? 4 : 12, borderLeft: '1px solid var(--border)' }}>
+                    {canvasSelectedId && <button onClick={deleteSelected} style={{ padding: '6px 12px', background: 'rgba(211, 47, 47, 0.2)', color: '#ff5252', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold', fontSize: isMobile ? 10 : 13 }}>Del</button>}
+                    {!isMobile && <button onClick={clearAll} style={{ padding: '6px 12px', background: 'rgba(255,255,255,0.05)', color: 'var(--muted)', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Clear</button>}
                   </div>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center', paddingLeft: 8 }}>
                     <button onClick={() => setZoom(Math.max(25, zoom - 25))} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}>-</button>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 40, textAlign: 'center' }}>{zoom}%</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: isMobile ? 30 : 40, textAlign: 'center' }}>{zoom}%</span>
                     <button onClick={() => setZoom(Math.min(400, zoom + 25))} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}>+</button>
-                    <button onClick={() => setZoom(100)} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 10 }}>Reset</button>
+                    {!isMobile && <button onClick={() => { setZoom(100); editorRef.current?.resetView(); }} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 10 }}>Reset</button>}
                   </div>
                 </div>
               )}
-              <div style={{ width: '100%', height: '100%', background: activeTab === 'canvas' ? canvasBgColor : 'var(--bg)' }}>
+              <div style={{ flex: 1, overflow: 'auto', position: 'relative', height: '100%' }}>
+                <div style={{ 
+                    width: '100%', 
+                    height: '100%', 
+                    padding: '4px',
+                    boxSizing: 'border-box',
+                    background: activeTab === 'canvas' ? canvasBgColor : 'var(--bg)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
                 {activeTab === 'canvas' ? (
-                  <CanvasEditor
+                  <CanvasEditor 
                     ref={editorRef}
-                    elements={noteData.elements}
+                    elements={noteData.elements} 
                     onChange={handleElementsChange}
                     tool={tool}
                     shapeType={shapeType}
@@ -282,10 +403,11 @@ return (
                     backgroundColor={canvasBgColor}
                     showGrid={showGrid}
                     zoom={zoom}
-                  />
-                ) : (
+                    onZoomChange={setZoom}
+                  />                ) : (
                   <GraphEditor content={JSON.stringify(noteData.graph)} onChange={handleGraphChange} />
                 )}
+              </div>
               </div>
             </div>
           )}

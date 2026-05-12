@@ -43,10 +43,12 @@ interface Props {
   backgroundColor?: string
   showGrid?: boolean
   zoom?: number
+  onZoomChange?: (zoom: number) => void
 }
 
 export interface CanvasEditorRef {
   getStageImage: () => string | undefined
+  resetView: () => void
 }
 
 const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
@@ -61,8 +63,17 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     selectedId,
     onSelectId,
     backgroundColor = '#ffffff',
-    showGrid = false
+    showGrid = false,
+    zoom = 100,
+    onZoomChange
   } = props
+
+  const scale = zoom / 100
+
+  const baseWidth = 800
+  const baseHeight = 600
+  const canvasWidth = Math.round(baseWidth * scale)
+  const canvasHeight = Math.round(baseHeight * scale)
 
   const [els, setEls] = useState<Element[]>(elements)
   const stageRef = useRef<any>(null)
@@ -73,16 +84,137 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [inputPos, setInputPos] = useState<{ x: number; y: number } | null>(null)
-  const [size, setSize] = useState({ width: 800, height: 600 })
+  const [size, setSize] = useState({ width: baseWidth, height: baseHeight })
+  const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
+  const [hasInitializedOffset, setHasInitializedOffset] = useState(false)
+  const isPanningRef = useRef(false)
+  const lastPointerRef = useRef({ x: 0, y: 0 })
+
+  // Simplified stagePos to just use stageOffset
+  const stagePos = stageOffset
+
+  useEffect(() => {
+    if (!hasInitializedOffset && size.width > 0 && size.height > 0) {
+      setStageOffset({
+        x: (size.width - baseWidth * scale) / 2,
+        y: (size.height - baseHeight * scale) / 2
+      })
+      setHasInitializedOffset(true)
+    }
+  }, [size, hasInitializedOffset, baseWidth, baseHeight, scale])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault()
+        
+        const zoomSpeed = 0.001
+        const delta = -e.deltaY * zoomSpeed
+        const newScale = Math.max(0.05, Math.min(10, scale * (1 + delta)))
+        
+        if (Math.abs(newScale - scale) < 0.001) return
+
+        const rect = container.getBoundingClientRect()
+        const mouseX = e.clientX - rect.left
+        const mouseY = e.clientY - rect.top
+
+        // Zoom to pointer logic
+        const logicalX = (mouseX - stagePos.x) / scale
+        const logicalY = (mouseY - stagePos.y) / scale
+
+        const newStagePosX = mouseX - logicalX * newScale
+        const newStagePosY = mouseY - logicalY * newScale
+
+        setStageOffset({ x: newStagePosX, y: newStagePosY })
+        onZoomChange?.(Math.round(newScale * 100))
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => container.removeEventListener('wheel', handleWheel)
+  }, [scale, stagePos, onZoomChange])
+
+  const viewRef = useRef({ size, stagePos, scale })
+  
+  useEffect(() => {
+    viewRef.current = { size, stagePos, scale }
+  }, [size, stagePos, scale])
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const file = item.getAsFile()
+          if (!file) continue
+          const reader = new FileReader()
+          reader.onload = () => {
+            const id = 'img-' + Date.now().toString()
+            const { size: curSize, stagePos: curStagePos, scale: curScale } = viewRef.current
+            
+            // Place in the center of the current view
+            const logicalCenterX = (curSize.width / 2 - curStagePos.x) / curScale
+            const logicalCenterY = (curSize.height / 2 - curStagePos.y) / curScale
+            
+            const newImage: Element = {
+              id,
+              type: 'image',
+              x: logicalCenterX - 150,
+              y: logicalCenterY - 150,
+              width: 300,
+              height: 300,
+              src: reader.result as string
+            }
+            setEls(prev => {
+              const next = [...prev, newImage]
+              onChange?.(next)
+              return next
+            })
+          }
+          reader.readAsDataURL(file)
+          break
+        }
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [onChange])
+
+  useEffect(() => {
+    setSize(prev => ({ 
+      width: Math.max(canvasWidth, prev.width), 
+      height: Math.max(canvasHeight, prev.height) 
+    }))
+  }, [canvasWidth, canvasHeight])
 
   useImperativeHandle(ref, () => ({
     getStageImage: () => {
       if (!stageRef.current) return undefined
       const oldNodes = transformerRef.current?.nodes() || []
       transformerRef.current?.nodes([])
-      const dataUrl = stageRef.current.toDataURL({ pixelRatio: 2, backgroundColor })
+      
+      // Capturing only the paper area
+      const dataUrl = stageRef.current.toDataURL({ 
+        pixelRatio: 2, 
+        backgroundColor,
+        x: stagePos.x,
+        y: stagePos.y,
+        width: canvasWidth,
+        height: canvasHeight
+      })
+      
       transformerRef.current?.nodes(oldNodes)
       return dataUrl
+    },
+    resetView: () => {
+      setStageOffset({
+        x: (size.width - baseWidth) / 2,
+        y: (size.height - baseHeight) / 2
+      })
     }
   }))
 
@@ -109,11 +241,14 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     if (!el) return
     const ro = new ResizeObserver((entries) => {
       const r = entries[0].contentRect
-      setSize({ width: Math.max(200, Math.floor(r.width)), height: Math.max(200, Math.floor(r.height)) })
+      setSize({ 
+        width: Math.max(canvasWidth, Math.floor(r.width)), 
+        height: Math.max(canvasHeight, Math.floor(r.height)) 
+      })
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [canvasWidth, canvasHeight])
 
   const findAndRemoveElementAt = (pos: { x: number; y: number }) => {
     const stage = stageRef.current
@@ -132,20 +267,28 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     try {
       const stage = stageRef.current
       if (!stage) return
-      const pos = stage.getPointerPosition()
-      if (!pos) return
+      const rawPos = stage.getPointerPosition()
+      if (!rawPos) return
+      
+      // Transform physical position to logical position relative to centered paper
+      const pos = { 
+        x: (rawPos.x - stagePos.x) / scale, 
+        y: (rawPos.y - stagePos.y) / scale 
+      }
 
       if (tool === 'select') {
         const clickedOnEmpty = e.target === stage || e.target.name() === 'background'
         if (clickedOnEmpty) {
           onSelectId(null)
+          isPanningRef.current = true
+          lastPointerRef.current = rawPos
         }
         return
       }
       
       if (tool === 'eraser') {
         isErasingRef.current = true
-        findAndRemoveElementAt(pos)
+        findAndRemoveElementAt(rawPos)
         return
       }
 
@@ -186,11 +329,23 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     try {
       const stage = stageRef.current
       if (!stage) return
-      const pos = stage.getPointerPosition()
-      if (!pos) return
+      const rawPos = stage.getPointerPosition()
+      if (!rawPos) return
+      const pos = { 
+        x: (rawPos.x - stagePos.x) / scale, 
+        y: (rawPos.y - stagePos.y) / scale 
+      }
+
+      if (isPanningRef.current) {
+        const dx = rawPos.x - lastPointerRef.current.x
+        const dy = rawPos.y - lastPointerRef.current.y
+        setStageOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }))
+        lastPointerRef.current = rawPos
+        return
+      }
 
       if (isErasingRef.current) {
-        findAndRemoveElementAt(pos)
+        findAndRemoveElementAt(rawPos)
         return
       }
 
@@ -222,9 +377,10 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   }
 
   const handleMouseUp = () => {
-    if (isDrawingRef.current || isErasingRef.current) {
+    if (isDrawingRef.current || isErasingRef.current || isPanningRef.current) {
       isDrawingRef.current = false
       isErasingRef.current = false
+      isPanningRef.current = false
       onChange?.(els)
     }
   }
@@ -243,8 +399,12 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     try {
       const stage = stageRef.current
       if (!stage) return
-      const pos = stage.getPointerPosition()
-      if (!pos) return
+      const rawPos = stage.getPointerPosition()
+      if (!rawPos) return
+      const pos = { 
+        x: (rawPos.x - stagePos.x) / scale, 
+        y: (rawPos.y - stagePos.y) / scale 
+      }
       
       const text = prompt('Enter text:')
       if (!text) return
@@ -335,16 +495,18 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     if (!showGrid) return null
     const lines = []
     const step = 40
+    const gridRange = 50000 // 50,000 pixels in each direction
     const isDark = backgroundColor && backgroundColor.toLowerCase().startsWith('#') && parseInt(backgroundColor.slice(1), 16) < 0x808080
     const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'
-    for (let i = 0; i < size.width / step; i++) {
-      lines.push(<Line key={`v-${i}`} points={[i * step, 0, i * step, size.height]} stroke={gridColor} strokeWidth={1} listening={false} />)
+    
+    for (let i = -gridRange / step; i <= gridRange / step; i++) {
+      lines.push(<Line key={`v-${i}`} points={[i * step, -gridRange, i * step, gridRange]} stroke={gridColor} strokeWidth={1 / scale} listening={false} />)
     }
-    for (let i = 0; i < size.height / step; i++) {
-      lines.push(<Line key={`h-${i}`} points={[0, i * step, size.width, i * step]} stroke={gridColor} strokeWidth={1} listening={false} />)
+    for (let i = -gridRange / step; i <= gridRange / step; i++) {
+      lines.push(<Line key={`h-${i}`} points={[-gridRange, i * step, gridRange, i * step]} stroke={gridColor} strokeWidth={1 / scale} listening={false} />)
     }
     return lines
-  }, [showGrid, size, backgroundColor])
+  }, [showGrid, backgroundColor, scale])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -358,8 +520,8 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
         onClick={handleCanvasClick} 
         style={{ background: backgroundColor, cursor: tool === 'pen' ? 'crosshair' : tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : tool === 'select' ? 'default' : 'pointer' }}
       >
-        <Layer>
-          <Rect name="background" x={0} y={0} width={size.width} height={size.height} fill={backgroundColor} listening={tool !== 'eraser'} />
+        <Layer x={stagePos.x} y={stagePos.y} scaleX={scale} scaleY={scale}>
+          <Rect name="background" x={-50000} y={-50000} width={100000} height={100000} fill={backgroundColor} listening={tool !== 'eraser'} />
           {gridElements}
           
           {els.map((el) => {
@@ -427,7 +589,7 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
       {inputPos && (
         <input
           id="canvas-text-input"
-          style={{ position: 'absolute', left: inputPos.x, top: inputPos.y, zIndex: 10, padding: '4px 8px', fontSize: '16px', border: '1px solid #1976d2', outline: 'none', borderRadius: 4 }}
+          style={{ position: 'absolute', left: inputPos.x * scale + stagePos.x, top: inputPos.y * scale + stagePos.y, zIndex: 10, padding: `${4 * scale}px ${8 * scale}px`, fontSize: `${16 * scale}px`, border: '1px solid #1976d2', outline: 'none', borderRadius: 4 * scale }}
           value={editingText}
           onChange={(e) => setEditingText(e.target.value)}
           onBlur={finishEditing}
@@ -440,6 +602,8 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
           }}
         />
       )}
+
+
     </div>
   )
 })

@@ -53,9 +53,7 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
 
   return (
     <div style={{ 
-      width: '22%', 
-      minWidth: 200, 
-      maxWidth: 300,
+      width: '100%', 
       height: '100%', 
       display: 'flex', 
       flexDirection: 'column',
