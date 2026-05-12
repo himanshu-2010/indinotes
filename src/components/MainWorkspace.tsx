@@ -2,10 +2,12 @@ import React, { useMemo, useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Sidebar from './Sidebar'
 import useNotesStore from '../stores/notesStore'
+import type { Chapter, NotesState } from '../stores/notesStore'
 import CanvasEditor from './CanvasEditor'
 import type { CanvasEditorRef, Element } from './CanvasEditor'
-import GraphEditor from './GraphEditor'
+import GraphEditor, { type GraphEditorRef } from './GraphEditor'
 import SyncIndicator from './SyncIndicator'
+import SettingsModal, { loadSettings } from './SettingsModal'
 import { jsPDF } from 'jspdf'
 
 const SIDEBAR_MIN = 180
@@ -26,26 +28,38 @@ function useScreenSize() {
   return size
 }
 
-const MainWorkspace: React.FC = () => {
+interface Props {
+  onGoHome?: () => void
+}
+
+const MainWorkspace: React.FC<Props> = ({ onGoHome }) => {
   const screen = useScreenSize()
   const isMobile = screen !== 'lg'
 
-  const chapters = useNotesStore((s: any) => s.chapters)
-  const selectedId = useNotesStore((s: any) => s.selectedId)
-  const loading = useNotesStore((s: any) => s.loading)
-  const createChapter = useNotesStore((s: any) => s.createChapter)
-  const updateChapter = useNotesStore((s: any) => s.updateChapter)
-  const deleteChapter = useNotesStore((s: any) => s.deleteChapter)
-  const selectChapter = useNotesStore((s: any) => s.selectChapter)
-  const undo = useNotesStore((s: any) => s.undo)
-  const redo = useNotesStore((s: any) => s.redo)
-  const canUndo = useNotesStore((s: any) => s.canUndo)
-  const canRedo = useNotesStore((s: any) => s.canRedo)
-  const pushHistory = useNotesStore((s: any) => s.pushHistory)
+  const chapters = useNotesStore((s: NotesState) => s.chapters)
+  const selectedId = useNotesStore((s: NotesState) => s.selectedId)
+  const loading = useNotesStore((s: NotesState) => s.loading)
+  const createChapter = useNotesStore((s: NotesState) => s.createChapter)
+  const updateChapter = useNotesStore((s: NotesState) => s.updateChapter)
+  const deleteChapter = useNotesStore((s: NotesState) => s.deleteChapter)
+  const selectChapter = useNotesStore((s: NotesState) => s.selectChapter)
+  const undo = useNotesStore((s: NotesState) => s.undo)
+  const redo = useNotesStore((s: NotesState) => s.redo)
+  const canUndo = useNotesStore((s: NotesState) => s.canUndo)
+  const canRedo = useNotesStore((s: NotesState) => s.canRedo)
+  const pushHistory = useNotesStore((s: NotesState) => s.pushHistory)
   const editorRef = useRef<CanvasEditorRef>(null)
+  const graphRef = useRef<GraphEditorRef>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sidebarDragRef = useRef(false)
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT)
+
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  const applySettings = () => {
+    const s = loadSettings()
+    setDrawSettings(prev => ({ ...prev, color: s.defaultPenColor }))
+  }
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'graph'>('canvas')
   const [tool, setTool] = useState<'select' | 'pen' | 'eraser' | 'text' | 'shape' | 'image' | 'fill'>('select')
@@ -84,7 +98,7 @@ const MainWorkspace: React.FC = () => {
     }
   }, [])
 
-  const selected = chapters.find((n: any) => n.id === selectedId)
+  const selected = chapters.find((n: Chapter) => n.id === selectedId)
 
   const noteData = useMemo(() => {
     if (!selected) return { elements: [], graph: { formula: 'sin(x)', mode: '2d', lines: [{ id: '1', formula: 'sin(x)', color: '#D4A547' }] }, settings: { bgColor: '#1e1e1e', showGrid: true } }
@@ -117,7 +131,7 @@ const MainWorkspace: React.FC = () => {
   const [canvasBgColor, setCanvasBgColor] = useState('#1e1e1e')
   const [showGrid, setShowGrid] = useState(true)
 
-  const [drawSettings, setDrawSettings] = useState({    color: '#000000',
+  const [drawSettings, setDrawSettings] = useState({    color: loadSettings().defaultPenColor,
     width: 2,
     mode: 'pen' as const,
   })
@@ -178,8 +192,14 @@ const MainWorkspace: React.FC = () => {
     if (!selected) return
     const filename = selected.title || 'chapter'
     
-    if (format === 'png' && activeTab === 'canvas' && editorRef.current) {
-      const imgData = editorRef.current.getStageImage()
+    const getImage = () => {
+      if (activeTab === 'canvas') return editorRef.current?.getStageImage()
+      if (activeTab === 'graph') return graphRef.current?.getCanvasImage()
+      return undefined
+    }
+    
+    if (format === 'png') {
+      const imgData = getImage()
       if (imgData) {
         const link = document.createElement('a')
         link.download = filename + '.png'
@@ -191,20 +211,15 @@ const MainWorkspace: React.FC = () => {
     
     if (format === 'pdf') {
       const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [800, 600] })
-      if (activeTab === 'canvas' && editorRef.current) {
-        const imgData = editorRef.current.getStageImage()
-        if (imgData) {
-          doc.addImage(imgData, 'PNG', 0, 0, 800, 600)
-          doc.save(filename + '-canvas.pdf')
-          return
-        }
+      const imgData = getImage()
+      if (imgData) {
+        doc.addImage(imgData, 'PNG', 0, 0, 800, 600)
+        doc.save(filename + '.pdf')
+        return
       }
       doc.setFontSize(24)
       doc.text(selected.title || 'Untitled', 40, 40)
       doc.setFontSize(14)
-      if (activeTab === 'graph') {
-        doc.text(`Graph: y = ${noteData.graph.lines?.[0]?.formula || 'sin(x)'}`, 40, 80)
-      }
       doc.save(filename + '.pdf')
     }
     
@@ -219,6 +234,39 @@ const MainWorkspace: React.FC = () => {
     }
   }
 
+  const exportBackup = () => {
+    const data = chapters.map((c: Chapter) => ({ id: c.id, title: c.title, content: c.content, priorityColor: c.priorityColor, createdAt: c.createdAt, updatedAt: c.updatedAt }))
+    const blob = new Blob([JSON.stringify({ version: 1, exportedAt: Date.now(), chapters: data }, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.download = 'IndiNotes-backup.json'
+    link.href = url
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result as string)
+        if (!parsed.chapters || !Array.isArray(parsed.chapters)) { alert('Invalid backup file'); return }
+        parsed.chapters.forEach((ch: Chapter) => {
+          createChapter(ch.title)
+          const id = useNotesStore.getState().chapters[0]?.id
+          if (id) updateChapter(id, { content: ch.content || '', priorityColor: ch.priorityColor || null })
+        })
+        alert(`Imported ${parsed.chapters.length} chapters`)
+      } catch { alert('Failed to parse backup file') }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const backupInputRef = useRef<HTMLInputElement>(null)
+
   const clearAll = () => {
     if (!confirm('Clear everything?')) return
     handleElementsChange([])
@@ -226,7 +274,7 @@ const MainWorkspace: React.FC = () => {
 
   const deleteSelected = () => {
     if (!canvasSelectedId) return
-    const updated = noteData.elements.filter((el: any) => el.id !== canvasSelectedId)
+    const updated = noteData.elements.filter((el: Element) => el.id !== canvasSelectedId)
     handleElementsChange(updated)
     setCanvasSelectedId(null)
   }
@@ -256,7 +304,7 @@ const MainWorkspace: React.FC = () => {
           boxShadow: isMobile ? '4px 0 15px rgba(0,0,0,0.5)' : 'none'
         }}>
           <Sidebar
-            items={chapters.map((n: any) => ({ id: n.id, label: n.title, priorityColor: n.priorityColor }))}
+            items={chapters.map((n: Chapter) => ({ id: n.id, label: n.title, priorityColor: n.priorityColor }))}
             selectedId={selectedId}
             onSelect={(id) => {
               selectChapter(id)
@@ -272,8 +320,14 @@ const MainWorkspace: React.FC = () => {
                 }
               }
             }}
+            onReorder={(from, to) => {
+              const updated = [...chapters]
+              const [moved] = updated.splice(from, 1)
+              updated.splice(to, 0, moved)
+              useNotesStore.setState({ chapters: updated })
+            }}
             onPriorityChange={(id, color) => {
-              const chapter = chapters.find((c: any) => c.id === id)
+              const chapter = chapters.find((c: Chapter) => c.id === id)
               if (chapter) {
                 const parsed = JSON.parse(chapter.content || '{}')
                 const updatedContent = JSON.stringify({ ...parsed, priorityColor: color })
@@ -356,6 +410,19 @@ const MainWorkspace: React.FC = () => {
                 ☰
               </button>
             )}
+            {onGoHome && (
+              <button
+                onClick={onGoHome}
+                title="Back to home"
+                style={{
+                  background: 'none', border: 'none',
+                  color: 'var(--muted)', fontSize: 18,
+                  cursor: 'pointer', padding: '2px 4px',
+                  display: 'flex', alignItems: 'center',
+                  flexShrink: 0,
+                }}
+              >⌂</button>
+            )}
             {selected && (
               <input
                 value={selected.title || ''}
@@ -385,16 +452,36 @@ const MainWorkspace: React.FC = () => {
               </motion.div>
             )}
             <SyncIndicator />
+            <button
+              onClick={() => setSettingsOpen(true)}
+              title="Settings"
+              style={{
+                width: 28, height: 28, borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--panel)', color: 'var(--muted)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontSize: 14,
+              }}
+            >⚙</button>
             <select 
-            onChange={(e) => { if (e.target.value) { exportContent(e.target.value as any); e.target.value = ''; } }}
-            disabled={!selected}
-            style={{ padding: screen === 'sm' ? '4px 6px' : '6px 12px', borderRadius: 6, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', cursor: selected ? 'pointer' : 'not-allowed', fontSize: screen === 'sm' ? 11 : 13 }}
+            onChange={(e) => {
+              const v = e.target.value
+              e.target.value = ''
+              if (v === 'backup') exportBackup()
+              else if (v === 'import') backupInputRef.current?.click()
+              else if (v) exportContent(v as 'pdf' | 'png' | 'json')
+            }}
+            style={{ padding: screen === 'sm' ? '4px 6px' : '6px 12px', borderRadius: 6, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: screen === 'sm' ? 11 : 13 }}
           >
             <option value="">Export</option>
             <option value="png">PNG</option>
             <option value="pdf">PDF</option>
             <option value="json">JSON</option>
+            <option disabled>─────</option>
+            <option value="backup">Backup All</option>
+            <option value="import">Import Backup</option>
           </select>
+          <input ref={backupInputRef} type="file" accept=".json" onChange={importBackup} style={{ display: 'none' }} />
           </div>
         </div>
 
@@ -525,7 +612,7 @@ const MainWorkspace: React.FC = () => {
                     zoom={zoom}
                     onZoomChange={setZoom}
                   />                ) : (
-                  <GraphEditor content={JSON.stringify(noteData.graph)} onChange={handleGraphChange} />
+                  <GraphEditor ref={graphRef} content={JSON.stringify(noteData.graph)} onChange={handleGraphChange} />
                 )}
               </div>
               </div>
@@ -533,6 +620,7 @@ const MainWorkspace: React.FC = () => {
           )}
         </div>
       </div>
+      <SettingsModal open={settingsOpen} onClose={() => { setSettingsOpen(false); applySettings() }} />
     </section>
   )
 }

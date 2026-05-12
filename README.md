@@ -6,13 +6,22 @@ A local-first student notebook with a vector canvas for drawing and an interacti
 
 ## Features
 
+![Canvas editor](public/screenshots/canvas-editor.png)
+
 - **Canvas workspace** — draw freehand strokes, add text, shapes, and images on an infinite canvas with zoom and pan. Pen, eraser, shape, text, and fill tools. Grid overlay with customizable background color.
+
+![Graphing calculator](public/screenshots/graph-editor.png)
+
 - **Graphing calculator** — Desmos-style expression list with real-time curve rendering. Supports `sin`, `cos`, `x^2`, and any mathjs expression. Drag to pan, scroll to zoom. Multiple expressions with color picker and show/hide toggle.
-- **Chapter organization** — Sidebar with chapter list, priority color tags, multi-select delete.
-- **Export** — Export canvas as PNG, PDF, or full chapter JSON.
-- **Undo/Redo** — 25-step history stack.
+
+![Chapter organization](public/screenshots/sidebar.png)
+
+- **Chapter organization** — Sidebar with chapter list, priority color tags, multi-select delete, search, and drag-and-drop reordering.
+- **Export** — Export canvas/graph as PNG, PDF, or full chapter JSON. Bulk backup and restore all chapters.
+- **Undo/Redo** — 25-step history stack with keyboard shortcuts (Ctrl+Z, Ctrl+Y).
+- **Settings** — Dark/light theme toggle, customizable default pen color and canvas background.
 - **Cloud sync** (optional) — When Supabase credentials are configured, changes sync automatically via the `syncQueue` table. On reconnect, queued changes push to Supabase and remote changes pull in.
-- **Desktop app** — Electron wrapper available for persistent local storage (data won't be lost on browser cache clear).
+- **Desktop app** — Electron wrapper available for persistent local storage (data won't be lost on browser cache clear). Auto-updater checks GitHub for new versions.
 
 ## Tech Stack
 
@@ -24,7 +33,8 @@ A local-first student notebook with a vector canvas for drawing and an interacti
 | Graphing | mathjs, raw Canvas 2D |
 | State | Zustand |
 | Storage | Dexie.js (IndexedDB) |
-| Desktop | Electron |
+| Desktop | Electron, electron-builder |
+| Mobile | Capacitor, Android SDK |
 | PWA | vite-plugin-pwa, Workbox |
 | Cloud (opt) | Supabase |
 
@@ -63,6 +73,9 @@ npm run build
 npm run dist:linux      # .AppImage, .deb, .rpm
 npm run dist:win        # .exe installer
 npm run dist:mac        # .dmg
+
+# Build Android APK (requires Android SDK + Capacitor)
+npm run mobile:build    # → android/app/build/outputs/apk/debug/
 ```
 
 ## Project Structure

@@ -14,7 +14,7 @@ function App() {
   return (
     <ErrorBoundary>
       <Layout>
-        <HomePage title="InkCanvas — IndiNotes" subtitle="A local-first PWA for note taking and graphing" />
+        <HomePage />
       </Layout>
     </ErrorBoundary>
   )

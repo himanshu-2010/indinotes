@@ -5,7 +5,7 @@
  */
 
 import React, {
-  useState, useRef, useEffect, useCallback,
+  useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle,
 } from "react";
 import * as math from "mathjs";
 
@@ -173,19 +173,31 @@ const zoomBtnStyle: React.CSSProperties = {
   lineHeight: "28px", textAlign: "center", padding: 0, flexShrink: 0,
 };
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
 interface Props {
   content?: string;
   onChange?: (content: string) => void;
 }
 
-export default function GraphEditor({ content, onChange }: Props) {
+export interface GraphEditorRef {
+  getCanvasImage: () => string | undefined;
+}
+
+export default forwardRef<GraphEditorRef, Props>(function GraphEditor({ content, onChange }, ref) {
+  useImperativeHandle(ref, () => ({
+    getCanvasImage: () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return undefined;
+      // Draw synchronously before capture to ensure latest state
+      draw();
+      return canvas.toDataURL('image/png');
+    },
+  }));
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const dragging     = useRef(false);
   const lastPos      = useRef({ x: 0, y: 0 });
   const sidebarDragRef = useRef(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT);
+  const pinchRef = useRef<{ d0: number; scale0: number } | null>(null);
   const [vp, setVp]  = useState<Viewport>(DEFAULT_VP);
   const vpRef        = useRef(vp);
   vpRef.current      = vp;
@@ -379,6 +391,39 @@ export default function GraphEditor({ content, onChange }: Props) {
     return () => ro.disconnect();
   }, [draw]);
 
+  // Pinch-to-zoom on touch devices
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0], t2 = e.touches[1];
+        pinchRef.current = {
+          d0: Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY),
+          scale0: vpRef.current.scale,
+        };
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const t1 = e.touches[0], t2 = e.touches[1];
+        const d = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const newScale = Math.max(4, Math.min(1000, pinchRef.current.scale0 * (d / pinchRef.current.d0)));
+        setVp(v => ({ ...v, scale: newScale }));
+      }
+    };
+    const onTouchEnd = () => { pinchRef.current = null; };
+    canvas.addEventListener('touchstart', onTouchStart, { passive: true });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd);
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+    };
+  }, []);
+
   useEffect(() => { draw(); }, [vp, exprs, draw]);
   useEffect(() => { 
     const str = JSON.stringify(exprs);
@@ -542,4 +587,4 @@ export default function GraphEditor({ content, onChange }: Props) {
       </div>
     </div>
   );
-}
+});

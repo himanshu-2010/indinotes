@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IndiNotes</string>
+    <string name="title_activity_main">IndiNotes</string>
+    <string name="package_name">com.indinotes.app</string>
+    <string name="custom_url_scheme">com.indinotes.app</string>
+</resources>

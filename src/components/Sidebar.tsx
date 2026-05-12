@@ -21,6 +21,7 @@ interface Props {
   onNewChapter?: () => void
   onDeleteChapter?: (ids: string[]) => void
   onPriorityChange?: (id: string, color: string | null) => void
+  onReorder?: (fromIndex: number, toIndex: number) => void
   showDelete?: boolean
 }
 
@@ -33,10 +34,16 @@ const itemVariants = {
   }),
 }
 
-const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, onDeleteChapter, onPriorityChange, showDelete }) => {
+const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, onDeleteChapter, onPriorityChange, onReorder, showDelete }) => {
   const [openPriorityMenu, setOpenPriorityMenu] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false)
+  const [search, setSearch] = useState('')
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+
+  const filtered = items.filter(it =>
+    it.label.toLowerCase().includes(search.toLowerCase())
+  )
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
     if (!isMultiSelectMode) {
@@ -71,7 +78,17 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
       borderRight: '1px solid var(--border)',
       minHeight: 0,
     }}>
-      <div style={{ padding: '8px 8px 0 8px', display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ padding: '8px 8px 0 8px', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search chapters..."
+          style={{
+            flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
+            background: 'var(--bg-alt)', color: 'var(--text)', fontSize: 12, outline: 'none',
+            minWidth: 0,
+          }}
+        />
         <motion.button
           onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
           whileHover={{ scale: 1.05 }}
@@ -111,9 +128,10 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
           )}
         </AnimatePresence>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px', minHeight: 0 }}>
-        <AnimatePresence mode="popLayout">
-          {items.map((it, i) => (
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <AnimatePresence mode="popLayout">
+            {filtered.map((it, i) => (
             <motion.div
               key={it.id}
               layout
@@ -122,6 +140,11 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
               initial="hidden"
               animate="visible"
               exit={{ opacity: 0, x: -12, transition: { duration: 0.12 } }}
+              draggable={!isMultiSelectMode}
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => { e.preventDefault(); setDragIndex(i) }}
+              onDragEnd={() => setDragIndex(null)}
+              onDrop={() => { if (dragIndex !== null && dragIndex !== i && onReorder) onReorder(dragIndex, i); setDragIndex(null) }}
               onClick={(e) => toggleSelect(it.id, e)}
               whileHover={{ scale: 1.01, background: selectedIds.includes(it.id) ? 'rgba(212, 165, 71, 0.25)' : selectedId === it.id ? 'rgba(212, 165, 71, 0.2)' : 'rgba(255,255,255,0.05)' }}
               whileTap={{ scale: 0.99 }}
@@ -130,13 +153,15 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
                 alignItems: 'center',
                 gap: 10,
                 padding: '12px 14px',
-                cursor: 'pointer',
+                cursor: isMultiSelectMode ? 'pointer' : 'grab',
                 borderLeft: it.priorityColor ? `4px solid ${it.priorityColor}` : '4px solid transparent',
                 background: selectedIds.includes(it.id) ? 'rgba(212, 165, 71, 0.25)' : (selectedId === it.id ? 'rgba(212, 165, 71, 0.15)' : 'transparent'),
                 borderRadius: 8,
                 marginBottom: 4,
                 userSelect: 'none',
                 position: 'relative',
+                opacity: dragIndex === i ? 0.4 : 1,
+                transition: 'opacity 0.15s',
               }}
             >
               {isMultiSelectMode && (
@@ -231,7 +256,7 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
             </motion.div>
           ))}
         </AnimatePresence>
-        {items.length === 0 && (
+        {items.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -239,7 +264,11 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
           >
             No chapters yet.<br />Create your first one!
           </motion.div>
-        )}
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            No chapters match "{search}"
+          </div>
+        ) : null}
       </div>
       
       <div style={{ padding: '12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
@@ -287,6 +316,7 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
           )}
         </AnimatePresence>
       </div>
+    </div>
     </div>
   )
 }

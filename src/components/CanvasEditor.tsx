@@ -89,6 +89,7 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   const [hasInitializedOffset, setHasInitializedOffset] = useState(false)
   const isPanningRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
+  const pinchRef = useRef<{ d0: number; cx: number; cy: number; scale0: number } | null>(null)
 
   // Simplified stagePos to just use stageOffset
   const stagePos = stageOffset
@@ -135,6 +136,48 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
 
     container.addEventListener('wheel', handleWheel, { passive: false })
     return () => container.removeEventListener('wheel', handleWheel)
+  }, [scale, stagePos, onZoomChange])
+
+  // Pinch-to-zoom on touch devices
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0], t2 = e.touches[1]
+        const d = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY)
+        pinchRef.current = {
+          d0: d,
+          cx: (t1.clientX + t2.clientX) / 2,
+          cy: (t1.clientY + t2.clientY) / 2,
+          scale0: scale,
+        }
+      }
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault()
+        const t1 = e.touches[0], t2 = e.touches[1]
+        const d = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY)
+        const { d0, cx, cy, scale0 } = pinchRef.current
+        const newScale = Math.max(0.05, Math.min(10, scale0 * (d / d0)))
+        const rect = el.getBoundingClientRect()
+        const mx = cx - rect.left, my = cy - rect.top
+        const logicalX = (mx - stagePos.x) / scale
+        const logicalY = (my - stagePos.y) / scale
+        setStageOffset({ x: mx - logicalX * newScale, y: my - logicalY * newScale })
+        onZoomChange?.(Math.round(newScale * 100))
+      }
+    }
+    const onTouchEnd = () => { pinchRef.current = null }
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+    }
   }, [scale, stagePos, onZoomChange])
 
   const viewRef = useRef({ size, stagePos, scale })
@@ -316,7 +359,7 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
           width: 5,
           height: 5,
           fill: shapeColor,
-          stroke: '#000',
+          stroke: shapeColor,
         }
         setEls((prev) => [...prev, shape])
       }
@@ -364,8 +407,8 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
         } else if (last.type === 'shape') {
           const updated: ShapeEl = {
             ...last,
-            width: Math.abs(pos.x - last.x),
-            height: Math.abs(pos.y - last.y),
+            width: last.shape === 'arrow' ? pos.x - last.x : Math.abs(pos.x - last.x),
+            height: last.shape === 'arrow' ? pos.y - last.y : Math.abs(pos.y - last.y),
           }
           return [...prevEls.slice(0, -1), updated]
         }

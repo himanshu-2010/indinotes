@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "main": "electron/main.cjs",
+  "description": "Local-first student notebook with canvas and graphs",
+  "author": "IndiNotes <himanshu-2010@users.noreply.github.com>",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -13,12 +15,17 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:all": "npm run build && electron-builder --linux --win --mac",
+    "mobile:dev": "npm run build && npx cap copy && npx cap open android",
+    "mobile:build": "npm run build && npx cap copy && npx cap sync && cd android && ./gradlew assembleDebug",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.3",
+    "@capacitor/cli": "^8.3.3",
+    "@capacitor/core": "^8.3.3",
     "@supabase/supabase-js": "^2.105.4",
     "dexie": "^4.4.2",
     "expr-eval": "^2.0.2",
@@ -37,7 +44,8 @@
     "workbox-window": "^7.4.1",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.30",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.13",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
