@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 type Item = { id: string; label: string; priorityColor?: string | null }
 
@@ -21,6 +22,15 @@ interface Props {
   onDeleteChapter?: (ids: string[]) => void
   onPriorityChange?: (id: string, color: string | null) => void
   showDelete?: boolean
+}
+
+const itemVariants = {
+  hidden: { opacity: 0, x: -12 },
+  visible: (i: number) => ({
+    opacity: 1,
+    x: 0,
+    transition: { delay: i * 0.03, type: 'spring' as const, stiffness: 300, damping: 24 },
+  }),
 }
 
 const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, onDeleteChapter, onPriorityChange, showDelete }) => {
@@ -58,11 +68,14 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
       display: 'flex', 
       flexDirection: 'column',
       background: 'var(--bg)', 
-      borderRight: '1px solid var(--border)'
+      borderRight: '1px solid var(--border)',
+      minHeight: 0,
     }}>
       <div style={{ padding: '8px 8px 0 8px', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button 
+        <motion.button
           onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           style={{ 
             padding: '4px 8px', 
             fontSize: 11, 
@@ -70,132 +83,170 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
             color: '#fff', 
             border: 'none', 
             borderRadius: 4, 
-            cursor: 'pointer'
+            cursor: 'pointer',
           }}
         >
           {isMultiSelectMode ? '✓ Multi-select On' : '○ Multi-select'}
-        </button>
-        {isMultiSelectMode && selectedIds.length > 0 && (
-          <button 
-            onClick={handleDelete}
-            style={{ 
-              padding: '4px 8px', 
-              fontSize: 11, 
-              background: 'rgba(211, 47, 47, 0.2)', 
-              color: '#ef4444', 
-              border: 'none', 
-              borderRadius: 4, 
-              cursor: 'pointer'
-            }}
-          >
-            Delete ({selectedIds.length})
-          </button>
-        )}
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-        {items.map((it) => (
-          <div 
-            key={it.id}
-            onClick={(e) => toggleSelect(it.id, e)}
-            style={{ 
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '12px 14px',
-              cursor: 'pointer',
-              borderLeft: it.priorityColor ? `4px solid ${it.priorityColor}` : '4px solid transparent',
-              background: selectedIds.includes(it.id) ? 'rgba(14, 165, 164, 0.25)' : (selectedId === it.id ? 'rgba(14, 165, 164, 0.15)' : 'transparent'),
-              borderRadius: 8,
-              marginBottom: 4,
-              userSelect: 'none'
-            }}
-            onMouseEnter={(e) => !selectedIds.includes(it.id) && (e.currentTarget.style.background = selectedId === it.id ? 'rgba(14, 165, 164, 0.2)' : 'rgba(255,255,255,0.05)')}
-            onMouseLeave={(e) => !selectedIds.includes(it.id) && (e.currentTarget.style.background = selectedId === it.id ? 'rgba(14, 165, 164, 0.15)' : 'transparent')}
-          >
-            {isMultiSelectMode && (
-              <input 
-                type="checkbox" 
-                checked={selectedIds.includes(it.id)}
-                onChange={() => {}}
-                style={{ width: 16, height: 16, cursor: 'pointer' }}
-              />
-            )}
-            <div style={{ 
-              width: 8, 
-              height: 8, 
-              borderRadius: '50%', 
-              background: it.priorityColor || '#555',
-              flexShrink: 0
-            }} />
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-              {it.label || 'Untitled'}
-            </span>
-            <button 
-              onClick={(e) => { 
-                e.stopPropagation()
-                setOpenPriorityMenu(openPriorityMenu === it.id ? null : it.id)
-              }}
+        </motion.button>
+        <AnimatePresence>
+          {isMultiSelectMode && selectedIds.length > 0 && (
+            <motion.button
+              key="delete-multi"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              onClick={handleDelete}
               style={{ 
-                background: 'rgba(255,255,255,0.1)', 
+                padding: '4px 8px', 
+                fontSize: 11, 
+                background: 'rgba(211, 47, 47, 0.2)', 
+                color: '#ef4444', 
                 border: 'none', 
                 borderRadius: 4, 
-                padding: '2px 6px', 
-                cursor: 'pointer',
-                color: 'var(--muted)',
-                fontSize: 10
+                cursor: 'pointer'
               }}
             >
-              🎨
-            </button>
-            {openPriorityMenu === it.id && (
-              <div style={{ 
-                position: 'absolute', 
-                right: 8,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'var(--bg)', 
-                border: '1px solid var(--border)', 
-                borderRadius: 8, 
-                padding: 8, 
-                display: 'flex', 
-                gap: 4,
-                zIndex: 1000,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+              Delete ({selectedIds.length})
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px', minHeight: 0 }}>
+        <AnimatePresence mode="popLayout">
+          {items.map((it, i) => (
+            <motion.div
+              key={it.id}
+              layout
+              custom={i}
+              variants={itemVariants}
+              initial="hidden"
+              animate="visible"
+              exit={{ opacity: 0, x: -12, transition: { duration: 0.12 } }}
+              onClick={(e) => toggleSelect(it.id, e)}
+              whileHover={{ scale: 1.01, background: selectedIds.includes(it.id) ? 'rgba(212, 165, 71, 0.25)' : selectedId === it.id ? 'rgba(212, 165, 71, 0.2)' : 'rgba(255,255,255,0.05)' }}
+              whileTap={{ scale: 0.99 }}
+              style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '12px 14px',
+                cursor: 'pointer',
+                borderLeft: it.priorityColor ? `4px solid ${it.priorityColor}` : '4px solid transparent',
+                background: selectedIds.includes(it.id) ? 'rgba(212, 165, 71, 0.25)' : (selectedId === it.id ? 'rgba(212, 165, 71, 0.15)' : 'transparent'),
+                borderRadius: 8,
+                marginBottom: 4,
+                userSelect: 'none',
+                position: 'relative',
               }}
-              onClick={(e) => e.stopPropagation()}
+            >
+              {isMultiSelectMode && (
+                <input 
+                  type="checkbox" 
+                  checked={selectedIds.includes(it.id)}
+                  onChange={() => {}}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
+                />
+              )}
+              <motion.div
+                layout
+                style={{ 
+                  width: 8, 
+                  height: 8, 
+                  borderRadius: '50%', 
+                  background: it.priorityColor || '#555',
+                  flexShrink: 0
+                }}
+                animate={it.priorityColor ? { scale: [1, 1.3, 1] } : {}}
+                transition={{ duration: 0.3 }}
+              />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                {it.label || 'Untitled'}
+              </span>
+              <motion.button
+                onClick={(e) => { 
+                  e.stopPropagation()
+                  setOpenPriorityMenu(openPriorityMenu === it.id ? null : it.id)
+                }}
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.9 }}
+                style={{ 
+                  background: 'rgba(255,255,255,0.1)', 
+                  border: 'none', 
+                  borderRadius: 4, 
+                  padding: '2px 6px', 
+                  cursor: 'pointer',
+                  color: 'var(--muted)',
+                  fontSize: 10
+                }}
               >
-                {PRIORITY_COLORS.map((p) => (
-                  <button
-                    key={p.name}
-                    onClick={() => { onPriorityChange?.(it.id, p.color); setOpenPriorityMenu(null); }}
-                    title={p.name}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: '50%',
-                      border: it.priorityColor === p.color ? '2px solid #fff' : '1px solid var(--border)',
-                      background: p.color || 'var(--panel)',
-                      cursor: 'pointer',
-                      padding: p.color ? 0 : 2,
+                🎨
+              </motion.button>
+              <AnimatePresence>
+                {openPriorityMenu === it.id && (
+                  <motion.div
+                    key="priority-menu"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.12 }}
+                    style={{ 
+                      position: 'absolute', 
+                      right: 8,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'var(--bg)', 
+                      border: '1px solid var(--border)', 
+                      borderRadius: 8, 
+                      padding: 8, 
+                      display: 'flex', 
+                      gap: 4,
+                      zIndex: 1000,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
                     }}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {p.color === null && <div style={{ width: 16, height: 16, borderRadius: '50%', border: '1px dashed var(--muted)' }} />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+                    {PRIORITY_COLORS.map((p) => (
+                      <motion.button
+                        key={p.name}
+                        onClick={() => { onPriorityChange?.(it.id, p.color); setOpenPriorityMenu(null); }}
+                        title={p.name}
+                        whileHover={{ scale: 1.2 }}
+                        whileTap={{ scale: 0.9 }}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: '50%',
+                          border: it.priorityColor === p.color ? '2px solid #fff' : '1px solid var(--border)',
+                          background: p.color || 'var(--panel)',
+                          cursor: 'pointer',
+                          padding: p.color ? 0 : 2,
+                        }}
+                      >
+                        {p.color === null && <div style={{ width: 16, height: 16, borderRadius: '50%', border: '1px dashed var(--muted)' }} />}
+                      </motion.button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          ))}
+        </AnimatePresence>
         {items.length === 0 && (
-          <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}
+          >
             No chapters yet.<br />Create your first one!
-          </div>
+          </motion.div>
         )}
       </div>
       
-      <div style={{ padding: '12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button 
+      <div style={{ padding: '12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+        <motion.button
           onClick={onNewChapter}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
           style={{ 
             padding: '10px 16px', 
             borderRadius: 8, 
@@ -208,25 +259,33 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
           }}
         >
           + New Chapter
-        </button>
-        {(showDelete || isMultiSelectMode) && (
-          <button 
-            onClick={() => isMultiSelectMode && selectedIds.length > 0 ? handleDelete() : onDeleteChapter?.(selectedId ? [selectedId] : [])}
-            disabled={isMultiSelectMode && selectedIds.length === 0 && !selectedId}
-            style={{ 
-              padding: '10px 16px', 
-              borderRadius: 8, 
-              background: isMultiSelectMode && selectedIds.length > 0 ? 'rgba(211, 47, 47, 0.2)' : 'rgba(211, 47, 47, 0.1)', 
-              color: isMultiSelectMode && selectedIds.length > 0 ? '#ef4444' : '#9ca3af', 
-              border: '1px solid rgba(211, 47, 47, 0.2)', 
-              cursor: (isMultiSelectMode && selectedIds.length > 0) || selectedId ? 'pointer' : 'not-allowed',
-              fontWeight: 'bold',
-              fontSize: 14
-            }}
-          >
-            {isMultiSelectMode ? `🗑️ Delete Selected (${selectedIds.length})` : '🗑️ Delete Chapter'}
-          </button>
-        )}
+        </motion.button>
+        <AnimatePresence>
+          {(showDelete || isMultiSelectMode) && (
+            <motion.button
+              key="delete-btn"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              onClick={() => isMultiSelectMode && selectedIds.length > 0 ? handleDelete() : onDeleteChapter?.(selectedId ? [selectedId] : [])}
+              disabled={isMultiSelectMode && selectedIds.length === 0 && !selectedId}
+              whileHover={!isMultiSelectMode || selectedIds.length > 0 ? { scale: 1.02 } : {}}
+              whileTap={!isMultiSelectMode || selectedIds.length > 0 ? { scale: 0.98 } : {}}
+              style={{ 
+                padding: '10px 16px', 
+                borderRadius: 8, 
+                background: isMultiSelectMode && selectedIds.length > 0 ? 'rgba(211, 47, 47, 0.2)' : 'rgba(211, 47, 47, 0.1)', 
+                color: isMultiSelectMode && selectedIds.length > 0 ? '#ef4444' : '#9ca3af', 
+                border: '1px solid rgba(211, 47, 47, 0.2)', 
+                cursor: (isMultiSelectMode && selectedIds.length > 0) || selectedId ? 'pointer' : 'not-allowed',
+                fontWeight: 'bold',
+                fontSize: 14
+              }}
+            >
+              {isMultiSelectMode ? `🗑️ Delete Selected (${selectedIds.length})` : '🗑️ Delete Chapter'}
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )

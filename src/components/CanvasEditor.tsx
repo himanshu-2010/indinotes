@@ -509,16 +509,16 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   }, [showGrid, backgroundColor, scale])
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', touchAction: 'none' }}>
       <Stage 
         ref={stageRef} 
         width={size.width} 
         height={size.height} 
-        onMouseDown={handleMouseDown} 
-        onMouseMove={handleMouseMove} 
-        onMouseUp={handleMouseUp} 
-        onClick={handleCanvasClick} 
-        style={{ background: backgroundColor, cursor: tool === 'pen' ? 'crosshair' : tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : tool === 'select' ? 'default' : 'pointer' }}
+        onPointerDown={handleMouseDown}
+        onPointerMove={handleMouseMove}
+        onPointerUp={handleMouseUp}
+        onClick={handleCanvasClick}
+        style={{ background: backgroundColor, cursor: tool === 'pen' ? 'crosshair' : tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : tool === 'select' ? 'default' : 'pointer', touchAction: 'none' }}
       >
         <Layer x={stagePos.x} y={stagePos.y} scaleX={scale} scaleY={scale}>
           <Rect name="background" x={-50000} y={-50000} width={100000} height={100000} fill={backgroundColor} listening={tool !== 'eraser'} />
@@ -589,7 +589,7 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
       {inputPos && (
         <input
           id="canvas-text-input"
-          style={{ position: 'absolute', left: inputPos.x * scale + stagePos.x, top: inputPos.y * scale + stagePos.y, zIndex: 10, padding: `${4 * scale}px ${8 * scale}px`, fontSize: `${16 * scale}px`, border: '1px solid #1976d2', outline: 'none', borderRadius: 4 * scale }}
+          style={{ position: 'absolute', left: inputPos.x * scale + stagePos.x, top: inputPos.y * scale + stagePos.y, zIndex: 10, padding: `${4 * scale}px ${8 * scale}px`, fontSize: `${16 * scale}px`, border: '1px solid var(--accent)', outline: 'none', borderRadius: 4 * scale }}
           value={editingText}
           onChange={(e) => setEditingText(e.target.value)}
           onBlur={finishEditing}

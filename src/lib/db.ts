@@ -9,10 +9,24 @@ export interface ChapterRow {
   updatedAt: number
 }
 
+export interface SyncQueueItem {
+  id?: number
+  chapterId: string
+  operation: 'create' | 'update' | 'delete'
+  data?: string
+  timestamp: number
+  retries: number
+}
+
 const db = new Dexie('IndiNotesDB')
 
 db.version(2).stores({
   chapters: 'id, title, priorityColor, updatedAt',
+})
+
+db.version(3).stores({
+  chapters: 'id, title, priorityColor, updatedAt',
+  syncQueue: '++id, chapterId, operation, timestamp',
 })
 
 export default db

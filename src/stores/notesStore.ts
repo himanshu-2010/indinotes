@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import db, { type ChapterRow } from '../lib/db'
+import { enqueueSync } from '../lib/syncService'
 
 export type Chapter = {
   id: string
@@ -12,9 +13,10 @@ export type Chapter = {
 
 const MAX_HISTORY = 25
 
-type NotesState = {
+export type NotesState = {
   chapters: Chapter[]
   selectedId?: string
+  loading: boolean
   history: { content: string, chapterId: string }[]
   historyIndex: number
   createChapter: (title?: string) => string
@@ -27,11 +29,13 @@ type NotesState = {
   canUndo: () => boolean
   canRedo: () => boolean
   pushHistory: (content: string, chapterId: string) => void
+  refreshChapters: () => Promise<void>
 }
 
-const useNotesStore = create<NotesState>((set: any, get: any) => ({
+const useNotesStore = create<NotesState>()((set, get) => ({
   chapters: [],
   selectedId: undefined,
+  loading: true,
   history: [],
   historyIndex: -1,
   
@@ -50,13 +54,13 @@ const useNotesStore = create<NotesState>((set: any, get: any) => ({
     if (historyIndex <= 0) return
     
     const prevState = history[historyIndex - 1]
-    const chapter = chapters.find((c: any) => c.id === prevState.chapterId)
+    const chapter = chapters.find((c) => c.id === prevState.chapterId)
     if (chapter) {
-      set((state: any) => ({
-        chapters: state.chapters.map((c: any) => c.id === prevState.chapterId ? { ...c, content: prevState.content, updatedAt: Date.now() } : c),
+      set((state) => ({
+        chapters: state.chapters.map((c) => c.id === prevState.chapterId ? { ...c, content: prevState.content, updatedAt: Date.now() } : c),
         historyIndex: historyIndex - 1
       }))
-      db.table('chapters').get(prevState.chapterId).then((existing: any) => {
+      db.table('chapters').get(prevState.chapterId).then((existing) => {
         if (existing) db.table('chapters').put({ ...existing, content: prevState.content, updatedAt: Date.now() }).catch(() => {})
       })
     }
@@ -67,13 +71,13 @@ const useNotesStore = create<NotesState>((set: any, get: any) => ({
     if (historyIndex >= history.length - 1) return
     
     const nextState = history[historyIndex + 1]
-    const chapter = chapters.find((c: any) => c.id === nextState.chapterId)
+    const chapter = chapters.find((c) => c.id === nextState.chapterId)
     if (chapter) {
-      set((state: any) => ({
-        chapters: state.chapters.map((c: any) => c.id === nextState.chapterId ? { ...c, content: nextState.content, updatedAt: Date.now() } : c),
+      set((state) => ({
+        chapters: state.chapters.map((c) => c.id === nextState.chapterId ? { ...c, content: nextState.content, updatedAt: Date.now() } : c),
         historyIndex: historyIndex + 1
       }))
-      db.table('chapters').get(nextState.chapterId).then((existing: any) => {
+      db.table('chapters').get(nextState.chapterId).then((existing) => {
         if (existing) db.table('chapters').put({ ...existing, content: nextState.content, updatedAt: Date.now() }).catch(() => {})
       })
     }
@@ -86,14 +90,16 @@ const useNotesStore = create<NotesState>((set: any, get: any) => ({
     const id = Date.now().toString() + Math.random().toString(36).slice(2, 8)
     const now = Date.now()
     const chapter: Chapter = { id, title, content: '', priorityColor: null, createdAt: now, updatedAt: now }
-    set((state: any) => ({ chapters: [chapter, ...state.chapters], selectedId: id, history: [], historyIndex: -1 }))
-    db.table('chapters').put({ id: chapter.id, title: chapter.title, content: chapter.content, priorityColor: chapter.priorityColor, createdAt: chapter.createdAt, updatedAt: chapter.updatedAt }).catch(() => {})
+    set((state) => ({ chapters: [chapter, ...state.chapters], selectedId: id, history: [], historyIndex: -1 }))
+    db.table('chapters').put({ id: chapter.id, title: chapter.title, content: chapter.content, priorityColor: chapter.priorityColor, createdAt: chapter.createdAt, updatedAt: chapter.updatedAt }).then(() => {
+      enqueueSync(id, 'create', JSON.stringify(chapter))
+    }).catch(() => {})
     return id
   },
   updateChapter: (id: string, patch: Partial<Pick<Chapter, 'title' | 'content' | 'priorityColor'>>, addToHistory = true) => {
     if (addToHistory && patch.content) {
       const { chapters, history, historyIndex } = get()
-      const chapter = chapters.find((c: any) => c.id === id)
+      const chapter = chapters.find((c) => c.id === id)
       if (chapter) {
         const newHistory = history.slice(0, historyIndex + 1)
         newHistory.push({ content: chapter.content, chapterId: id })
@@ -101,41 +107,73 @@ const useNotesStore = create<NotesState>((set: any, get: any) => ({
         set({ history: newHistory, historyIndex: newHistory.length - 1 })
       }
     }
-    set((state: any) => ({
-      chapters: state.chapters.map((n: any) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n)),
+    set((state) => ({
+      chapters: state.chapters.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n)),
     }))
-    db.table('chapters').get(id).then((existing: any) => {
+    const updatedAt = Date.now()
+    db.table('chapters').get(id).then((existing) => {
       if (existing) {
-        const updated = { ...existing, ...patch, updatedAt: Date.now() }
-        db.table('chapters').put(updated).catch(() => {})
+        const updated = { ...existing, ...patch, updatedAt }
+        db.table('chapters').put(updated).then(() => {
+          enqueueSync(id, 'update', JSON.stringify(updated))
+        }).catch(() => {})
       }
     })
   },
   setPriorityColor: (id: string, color: string | null) => {
-    set((state: any) => ({
-      chapters: state.chapters.map((c: any) => (c.id === id ? { ...c, priorityColor: color, updatedAt: Date.now() } : c)),
+    const updatedAt = Date.now()
+    set((state) => ({
+      chapters: state.chapters.map((c) => (c.id === id ? { ...c, priorityColor: color, updatedAt } : c)),
     }))
-    db.table('chapters').get(id).then((existing: any) => {
+    db.table('chapters').get(id).then((existing) => {
       if (existing) {
-        db.table('chapters').put({ ...existing, priorityColor: color, updatedAt: Date.now() }).catch(() => {})
+        const updated = { ...existing, priorityColor: color, updatedAt }
+        db.table('chapters').put(updated).then(() => {
+          enqueueSync(id, 'update', JSON.stringify(updated))
+        }).catch(() => {})
       }
     })
   },
   deleteChapter: (id: string) => {
-    set((state: any) => {
-      const next = state.chapters.filter((n: any) => n.id !== id)
+    set((state) => {
+      const next = state.chapters.filter((n) => n.id !== id)
       const selectedId = state.selectedId === id ? (next[0] ? next[0].id : undefined) : state.selectedId
       return { chapters: next, selectedId }
     })
     db.table('chapters').delete(id).catch(() => {})
+    enqueueSync(id, 'delete')
   },
   selectChapter: (id?: string) => set(() => ({ selectedId: id, history: [], historyIndex: -1 })),
+  refreshChapters: async () => {
+    const rows = await db.table('chapters').toArray()
+    if (!rows || rows.length === 0) {
+      set({ chapters: [] })
+      return
+    }
+    const chapters = rows.map((r: ChapterRow) => ({
+      id: r.id,
+      title: r.title,
+      content: r.content,
+      priorityColor: r.priorityColor,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }))
+    const { selectedId } = get()
+    if (selectedId && !chapters.find((c: Chapter) => c.id === selectedId)) {
+      set({ chapters, selectedId: chapters[0]?.id })
+    } else {
+      set({ chapters })
+    }
+  },
 }))
 
 db.table('chapters').toArray().then((rows: ChapterRow[]) => {
-  if (!rows || rows.length === 0) return
-  const chapters = rows.map((r) => ({ id: r.id, title: r.title, content: r.content, priorityColor: r.priorityColor, createdAt: r.createdAt, updatedAt: r.updatedAt }))
-  useNotesStore.setState({ chapters })
-}).catch(() => {})
+  if (rows && rows.length > 0) {
+    const chapters = rows.map((r) => ({ id: r.id, title: r.title, content: r.content, priorityColor: r.priorityColor, createdAt: r.createdAt, updatedAt: r.updatedAt }))
+    useNotesStore.setState({ chapters, loading: false })
+  } else {
+    useNotesStore.setState({ loading: false })
+  }
+}).catch(() => { useNotesStore.setState({ loading: false }) })
 
 export default useNotesStore

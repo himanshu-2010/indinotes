@@ -19,10 +19,8 @@ interface Expression {
 }
 
 interface Viewport {
-  /** World-unit offset of graph origin from canvas centre */
   cx: number;
   cy: number;
-  /** Pixels per world unit */
   scale: number;
 }
 
@@ -47,6 +45,10 @@ const INITIAL_EXPRS: Expression[] = [
   { id: "1", text: "y = sin(x)",       color: "#c74440", visible: true },
   { id: "2", text: "y = x^2 / 4 - 2", color: "#2d70b3", visible: true },
 ];
+
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 300;
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
@@ -182,9 +184,44 @@ export default function GraphEditor({ content, onChange }: Props) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const dragging     = useRef(false);
   const lastPos      = useRef({ x: 0, y: 0 });
+  const sidebarDragRef = useRef(false);
+  const sidebarWidthRef = useRef(SIDEBAR_DEFAULT);
   const [vp, setVp]  = useState<Viewport>(DEFAULT_VP);
   const vpRef        = useRef(vp);
   vpRef.current      = vp;
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try { return parseInt(localStorage.getItem('indinotes:graphSidebarWidth') || '', 10) || SIDEBAR_DEFAULT } catch { return SIDEBAR_DEFAULT }
+  });
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 640);
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 640) setSidebarOpen(true);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!sidebarDragRef.current) return;
+      const w = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX));
+      setSidebarWidth(w);
+      sidebarWidthRef.current = w;
+    };
+    const onUp = () => {
+      if (sidebarDragRef.current) {
+        sidebarDragRef.current = false;
+        localStorage.setItem('indinotes:graphSidebarWidth', String(sidebarWidthRef.current));
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
 
   const [exprs, setExprs] = useState<Expression[]>(() => {
     try { 
@@ -207,6 +244,13 @@ export default function GraphEditor({ content, onChange }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const getCSS = (name: string, fallback: string) => {
+      try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback }
+      catch { return fallback }
+    };
+    const bgColor = getCSS('--bg', '#16171d');
+    const mutedColor = getCSS('--muted', '#9ca3af');
+
     const { cx, cy, scale } = vpRef.current;
     const W = canvas.width;
     const H = canvas.height;
@@ -215,7 +259,7 @@ export default function GraphEditor({ content, onChange }: Props) {
     const oy = H / 2 - cy * scale;
 
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = "var(--bg)";
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, W, H);
 
     const step = gridStep(scale);
@@ -238,12 +282,12 @@ export default function GraphEditor({ content, onChange }: Props) {
       ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
     }
 
-    ctx.strokeStyle = "var(--muted)";
+    ctx.strokeStyle = mutedColor;
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(W, oy); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, H); ctx.stroke();
 
-    ctx.fillStyle = "var(--muted)";
+    ctx.fillStyle = mutedColor;
     const arrowDraw = (points: [number, number][]) => {
       ctx.beginPath();
       ctx.moveTo(...points[0]);
@@ -253,7 +297,7 @@ export default function GraphEditor({ content, onChange }: Props) {
     arrowDraw([[W - 10, oy - 5], [W, oy], [W - 10, oy + 5]]);
     arrowDraw([[ox - 5, 10], [ox, 0], [ox + 5, 10]]);
 
-    ctx.fillStyle = "#a1a1aa"; // A lighter grey for better contrast
+    ctx.fillStyle = "#a1a1aa";
     ctx.font = "11px system-ui, sans-serif";
 
     const fmt = (v: number) =>
@@ -341,12 +385,12 @@ export default function GraphEditor({ content, onChange }: Props) {
     if (content !== str) onChange?.(str); 
   }, [exprs, onChange, content]);
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  const onPointerDown = (e: React.PointerEvent) => {
     dragging.current = true;
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
 
-  const onMouseMove = (e: React.MouseEvent) => {
+  const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
@@ -360,55 +404,140 @@ export default function GraphEditor({ content, onChange }: Props) {
     e.preventDefault();
     const factor = e.deltaY > 0 ? 1 / 1.15 : 1.15;
     setVp((v) => ({ ...v, scale: Math.max(4, Math.min(1000, v.scale * factor)) }));
+  }; 
+
+  const startSidebarDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    sidebarDragRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
   };
+
+  const smallScreen = window.innerWidth < 640;
 
   return (
     <div style={{
       display: "flex", height: "100%", width: "100%",
       fontFamily: "'Lato', 'Segoe UI', sans-serif",
       background: "var(--bg)", color: "var(--text)", overflow: "hidden",
+      position: 'relative',
     }}>
-      <div style={{
-        width: 320, minWidth: 240, maxWidth: 400,
-        background: "var(--panel)", borderRight: "1px solid var(--border)",
-        display: "flex", flexDirection: "column",
-      }}>
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {exprs.map((expr) => (
-            <ExpressionRow
-              key={expr.id}
-              expr={expr}
-              onUpdate={(id, text) => setExprs(p => p.map(e => e.id === id ? { ...e, text } : e))}
-              onDelete={(id) => setExprs(p => p.filter(e => e.id !== id))}
-              onColorChange={(id, color) => setExprs(p => p.map(e => e.id === id ? { ...e, color } : e))}
-              onToggle={(id) => setExprs(p => p.map(e => e.id === id ? { ...e, visible: !e.visible } : e))}
-              active={activeId === expr.id}
-              onFocus={() => setActiveId(expr.id)}
-              onBlur={() => setActiveId(null)}
-            />
-          ))}
+      {!sidebarOpen && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          title="Show expressions"
+          style={{
+            position: 'absolute',
+            top: 8, left: 8,
+            zIndex: 10,
+            width: 28, height: 28,
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: 'var(--panel)',
+            color: 'var(--text)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 14,
+          }}
+        >☰</button>
+      )}
+      {sidebarOpen && (
+        <div style={{
+          width: smallScreen ? '80%' : sidebarWidth,
+          maxWidth: smallScreen ? 320 : SIDEBAR_MAX,
+          minWidth: smallScreen ? 240 : SIDEBAR_MIN,
+          background: "var(--panel)",
+          borderRight: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          position: smallScreen ? 'absolute' as const : 'relative' as const,
+          zIndex: smallScreen ? 10 : 'auto' as any,
+          height: '100%',
+          flexShrink: 0,
+          minHeight: 0,
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--border)',
+            flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.5px' }}>EXPRESSIONS</span>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={{
+                width: 24, height: 24, borderRadius: 4,
+                border: 'none', background: 'transparent',
+                color: 'var(--muted)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14,
+              }}
+            >✕</button>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            {exprs.map((expr) => (
+              <ExpressionRow
+                key={expr.id}
+                expr={expr}
+                onUpdate={(id, text) => setExprs(p => p.map(e => e.id === id ? { ...e, text } : e))}
+                onDelete={(id) => setExprs(p => p.filter(e => e.id !== id))}
+                onColorChange={(id, color) => setExprs(p => p.map(e => e.id === id ? { ...e, color } : e))}
+                onToggle={(id) => setExprs(p => p.map(e => e.id === id ? { ...e, visible: !e.visible } : e))}
+                active={activeId === expr.id}
+                onFocus={() => setActiveId(expr.id)}
+                onBlur={() => setActiveId(null)}
+              />
+            ))}
+          </div>
           <button
             onClick={() => {
                 const color = PALETTE[exprs.length % PALETTE.length];
                 setExprs(p => [...p, { id: String(nextId), text: "", color, visible: true }]);
                 setNextId(n => n + 1);
             }}
-            style={{ width: "100%", padding: "12px 16px", background: "transparent", border: "none", borderTop: "1px solid var(--border)", cursor: "pointer", textAlign: "left", color: "var(--muted)", fontSize: 14 }}
+            style={{ width: "100%", padding: "12px 16px", background: "transparent", border: "none", borderTop: "1px solid var(--border)", cursor: "pointer", textAlign: "left", color: "var(--muted)", fontSize: 14, flexShrink: 0 }}
           >
             + Add Expression
           </button>
+          <div style={{ borderTop: "1px solid var(--border)", padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, background: "var(--panel)", flexShrink: 0 }}>
+            <button style={{...zoomBtnStyle, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)'}} onClick={() => setVp(v => ({ ...v, scale: Math.min(1000, v.scale * 1.25) }))}>+</button>
+            <button style={{...zoomBtnStyle, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)'}} onClick={() => setVp(v => ({ ...v, scale: Math.max(4, v.scale / 1.25) }))}>−</button>
+            <button style={{ ...zoomBtnStyle, width: "auto", padding: "0 10px", fontSize: 11, color: 'var(--text)', background: 'var(--panel)', border: '1px solid var(--border)' }} onClick={() => setVp(DEFAULT_VP)}>Reset</button>
+          </div>
+          {!smallScreen && (
+            <div
+              onMouseDown={startSidebarDrag}
+              style={{
+                position: 'absolute',
+                top: 0, right: 0, bottom: 0,
+                width: 5,
+                cursor: 'col-resize',
+                zIndex: 10,
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: '50%', right: -3,
+                width: 4, height: 32,
+                borderRadius: 2,
+                background: 'var(--border)',
+                transform: 'translateY(-50%)',
+                opacity: 0.4,
+                transition: 'opacity 0.2s',
+              }} />
+            </div>
+          )}
         </div>
-        <div style={{ borderTop: "1px solid var(--border)", padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, background: "var(--panel)" }}>
-          <button style={{...zoomBtnStyle, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)'}} onClick={() => setVp(v => ({ ...v, scale: Math.min(1000, v.scale * 1.25) }))}>+</button>
-          <button style={{...zoomBtnStyle, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)'}} onClick={() => setVp(v => ({ ...v, scale: Math.max(4, v.scale / 1.25) }))}>−</button>
-          <button style={{ ...zoomBtnStyle, width: "auto", padding: "0 10px", fontSize: 11, color: 'var(--text)', background: 'var(--panel)', border: '1px solid var(--border)' }} onClick={() => setVp(DEFAULT_VP)}>Reset</button>
-        </div>
-      </div>
+      )}
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         <canvas
           ref={canvasRef}
-          style={{ display: "block", width: "100%", height: "100%", cursor: dragging.current ? "grabbing" : "grab" }}
-          onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={stopDrag} onMouseLeave={stopDrag} onWheel={onWheel}
+          style={{ display: "block", width: "100%", height: "100%", cursor: dragging.current ? "grabbing" : "grab", touchAction: "none" }}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDrag} onPointerLeave={stopDrag} onWheel={onWheel}
         />
       </div>
     </div>

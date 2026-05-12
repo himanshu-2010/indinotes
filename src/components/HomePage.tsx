@@ -8,7 +8,7 @@ interface Props {
 
 const HomePage: React.FC<Props> = () => {
   return (
-    <div className="home-page" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="home-page" style={{ height: '100dvh', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <MainWorkspace />
     </div>
   )
