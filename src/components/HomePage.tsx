@@ -253,13 +253,13 @@ export default function HomePage() {
           Get the standalone desktop or mobile app for offline use and persistent storage.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <motion.a href="release/IndiNotes-0.0.0.AppImage" download="IndiNotes.AppImage" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.AppImage)</motion.a>
-          <motion.a href="release/indinotes_0.0.0_amd64.deb" download="IndiNotes.deb" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.deb)</motion.a>
-          <motion.a href="release/indinotes-0.0.0.x86_64.rpm" download="IndiNotes.rpm" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.rpm)</motion.a>
-          <motion.a href="release/indinotes_0.0.0_amd64.snap" download="IndiNotes.snap" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.snap)</motion.a>
-          <motion.a href="release/IndiNotes-Setup-0.0.0.exe" download="IndiNotes-Setup.exe" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🪟 Windows (.exe)</motion.a>
-          <motion.a href="release/IndiNotes-0.0.0.dmg" download="IndiNotes.dmg" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={{ ...btnStyle, opacity: 0.7 }}>🍎 macOS (.dmg) <span style={{ fontSize: 10, background: 'rgba(212,165,71,0.2)', color: 'var(--accent)', padding: '1px 5px', borderRadius: 4 }}>not tested yet</span></motion.a>
-          <motion.a href="release/IndiNotes-0.0.0.apk" download="IndiNotes.apk" whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>📱 Android (.apk)</motion.a>
+          <motion.a href="https://github.com/himanshu-2010/indinotes/releases/download/v0.2.0/IndiNotes-0.2.0.AppImage" download whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.AppImage)</motion.a>
+          <motion.a href="https://github.com/himanshu-2010/indinotes/releases/download/v0.2.0/indinotes_0.2.0_amd64.deb" download whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.deb)</motion.a>
+          <motion.a href="https://github.com/himanshu-2010/indinotes/releases/download/v0.2.0/indinotes-0.2.0.x86_64.rpm" download whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.rpm)</motion.a>
+          <motion.a href="https://github.com/himanshu-2010/indinotes/releases/download/v0.2.0/indinotes_0.2.0_amd64.snap" download whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🐧 Linux (.snap)</motion.a>
+          <motion.a href="https://github.com/himanshu-2010/indinotes/releases/download/v0.2.0/IndiNotes.Setup.0.2.0.exe" download whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>🪟 Windows (.exe)</motion.a>
+          <motion.a href="https://github.com/himanshu-2010/indinotes/releases/download/v0.2.0/IndiNotes-0.2.0.apk" download whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={btnStyle}>📱 Android (.apk)</motion.a>
+          <div style={{ ...btnStyle, opacity: 0.6, cursor: 'default' }}>🍎 macOS (.dmg) <span style={{ fontSize: 10, background: 'rgba(212,165,71,0.15)', color: 'var(--accent)', padding: '1px 5px', borderRadius: 4 }}>build from source</span></div>
         </div>
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
           Build from source: <code style={{ fontSize: 12 }}>npm run dist:linux</code> &middot; <code style={{ fontSize: 12 }}>npm run dist:win</code> (Wine) &middot; <code style={{ fontSize: 12 }}>npm run dist:mac</code> (macOS) &middot; <code style={{ fontSize: 12 }}>npm run mobile:build</code> (Android SDK / JDK 17)

@@ -1,6 +1,7 @@
 # IndiNotes
 
 ![Logo](Logo.png)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
 A local-first student notebook with a vector canvas for drawing and an interactive graphing calculator. Built as a PWA with an optional Electron shell for desktop use.
 
