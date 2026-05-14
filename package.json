@@ -28,12 +28,14 @@
     "@capacitor/core": "^8.3.3",
     "@supabase/supabase-js": "^2.105.4",
     "dexie": "^4.4.2",
+    "electron-updater": "^6.8.3",
     "expr-eval": "^2.0.2",
     "framer-motion": "^12.38.0",
     "immer": "^11.1.8",
     "jspdf": "^4.2.1",
     "konva": "^10.3.0",
     "mathjs": "^15.2.0",
+    "pdfjs-dist": "^5.7.284",
     "plotly.js-dist": "^3.5.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -44,8 +46,7 @@
     "workbox-window": "^7.4.1",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.30",
-    "zustand": "^5.0.13",
-    "electron-updater": "^6.8.3"
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

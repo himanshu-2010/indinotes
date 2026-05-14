@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-type Item = { id: string; label: string; priorityColor?: string | null }
+type Item = { id: string; label: string; priorityColor?: string | null; folderId?: string | null; tags?: string }
+
+type FolderItem = { id: string; name: string }
 
 const PRIORITY_COLORS = [
   { name: 'None', color: null },
@@ -16,12 +18,19 @@ const PRIORITY_COLORS = [
 
 interface Props {
   items: Item[]
+  folders: FolderItem[]
   selectedId?: string
+  selectedFolderId?: string | null
   onSelect?: (id: string) => void
   onNewChapter?: () => void
   onDeleteChapter?: (ids: string[]) => void
   onPriorityChange?: (id: string, color: string | null) => void
   onReorder?: (fromIndex: number, toIndex: number) => void
+  onSelectFolder?: (folderId: string | null) => void
+  onCreateFolder?: () => void
+  onDeleteFolder?: (folderId: string) => void
+  onRenameFolder?: (folderId: string, name: string) => void
+  onTagsChange?: (id: string, tags: string) => void
   showDelete?: boolean
 }
 
@@ -34,16 +43,14 @@ const itemVariants = {
   }),
 }
 
-const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, onDeleteChapter, onPriorityChange, onReorder, showDelete }) => {
+const Sidebar: React.FC<Props> = ({ items, folders, selectedId, selectedFolderId, onSelect, onNewChapter, onDeleteChapter, onPriorityChange, onReorder, showDelete, onSelectFolder, onCreateFolder, onDeleteFolder, onRenameFolder, onTagsChange }) => {
   const [openPriorityMenu, setOpenPriorityMenu] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false)
   const [search, setSearch] = useState('')
   const [dragIndex, setDragIndex] = useState<number | null>(null)
-
-  const filtered = items.filter(it =>
-    it.label.toLowerCase().includes(search.toLowerCase())
-  )
+  const [openTagEditor, setOpenTagEditor] = useState<string | null>(null)
+  const [editingTags, setEditingTags] = useState('')
 
   const toggleSelect = (id: string, e: React.MouseEvent) => {
     if (!isMultiSelectMode) {
@@ -58,6 +65,10 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
     )
   }
 
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  const [editingFolderName, setEditingFolderName] = useState('')
+  const [folderOpen, setFolderOpen] = useState(true)
+
   const handleDelete = () => {
     if (selectedIds.length > 0) {
       if (confirm(`Delete ${selectedIds.length} chapter(s)? This cannot be undone.`)) {
@@ -67,6 +78,16 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
       }
     }
   }
+
+  // Filter items by selected folder and search (label + tags)
+  const filtered = items.filter(it => {
+    const q = search.toLowerCase()
+    const matchesLabel = it.label.toLowerCase().includes(q)
+    const matchesTags = (it.tags || '').toLowerCase().includes(q)
+    if (!matchesLabel && !matchesTags) return false
+    if (selectedFolderId !== undefined && it.folderId !== selectedFolderId) return false
+    return true
+  })
 
   return (
     <div style={{ 
@@ -78,6 +99,63 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
       borderRight: '1px solid var(--border)',
       minHeight: 0,
     }}>
+      {/* Folder section */}
+      <div style={{ flexShrink: 0, borderBottom: folders.length > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
+        <div
+          onClick={() => setFolderOpen(!folderOpen)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.5px', userSelect: 'none' }}
+        >
+          <span style={{ fontSize: 10 }}>{folderOpen ? '▾' : '▸'}</span>
+          FOLDERS
+          <motion.button
+            onClick={(e) => { e.stopPropagation(); onCreateFolder?.() }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}
+            title="New folder"
+          >+</motion.button>
+        </div>
+        <AnimatePresence>
+          {folderOpen && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: 'hidden' }}>
+              <div
+                onClick={() => onSelectFolder?.(null)}
+                style={{ padding: '6px 12px 6px 24px', cursor: 'pointer', fontSize: 13, color: selectedFolderId === null ? 'var(--accent)' : 'var(--muted)', background: selectedFolderId === null ? 'rgba(212,165,71,0.1)' : 'transparent', display: 'flex', alignItems: 'center', gap: 6 }}
+              >📁 All Chapters</div>
+              {folders.map(f => (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', padding: '2px 12px 2px 24px', background: selectedFolderId === f.id ? 'rgba(212,165,71,0.1)' : 'transparent' }}>
+                  {editingFolderId === f.id ? (
+                    <input
+                      autoFocus
+                      value={editingFolderName}
+                      onChange={e => setEditingFolderName(e.target.value)}
+                      onBlur={() => { onRenameFolder?.(f.id, editingFolderName); setEditingFolderId(null) }}
+                      onKeyDown={e => { if (e.key === 'Enter') { onRenameFolder?.(f.id, editingFolderName); setEditingFolderId(null) } if (e.key === 'Escape') setEditingFolderId(null) }}
+                      style={{ flex: 1, border: 'none', outline: 'none', background: 'var(--bg-alt)', color: 'var(--text)', padding: '4px 6px', borderRadius: 4, fontSize: 13 }}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span
+                      onClick={() => onSelectFolder?.(f.id)}
+                      style={{ flex: 1, cursor: 'pointer', fontSize: 13, color: selectedFolderId === f.id ? 'var(--accent)' : 'var(--text)', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >📂 {f.name}</span>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditingFolderId(f.id); setEditingFolderName(f.name) }}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 10, padding: '2px 4px' }}
+                    title="Rename"
+                  >✎</button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (confirm(`Delete folder "${f.name}"? Chapters will be moved to root.`)) onDeleteFolder?.(f.id) }}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}
+                    title="Delete folder"
+                  >×</button>
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
       <div style={{ padding: '8px 8px 0 8px', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
         <input
           value={search}
@@ -184,9 +262,17 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
                 animate={it.priorityColor ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 0.3 }}
               />
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                {it.label || 'Untitled'}
-              </span>
+              <div style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, color: 'var(--text)' }}>
+                  {it.label || 'Untitled'}
+                </span>
+                {it.tags && (it.tags || '').trim() && (it.tags || '').split(',').map(t => t.trim()).filter(Boolean).slice(0, 2).map(tag => (
+                  <span key={tag} style={{ flexShrink: 0, padding: '1px 5px', borderRadius: 4, fontSize: 9, background: 'rgba(212,165,71,0.15)', color: 'var(--accent)', whiteSpace: 'nowrap', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tag}</span>
+                ))}
+                {(it.tags || '').split(',').filter(Boolean).length > 2 && (
+                  <span style={{ flexShrink: 0, fontSize: 9, color: 'var(--muted)' }}>+{(it.tags || '').split(',').filter(Boolean).length - 2}</span>
+                )}
+              </div>
               <motion.button
                 onClick={(e) => { 
                   e.stopPropagation()
@@ -250,6 +336,66 @@ const Sidebar: React.FC<Props> = ({ items, selectedId, onSelect, onNewChapter, o
                         {p.color === null && <div style={{ width: 16, height: 16, borderRadius: '50%', border: '1px dashed var(--muted)' }} />}
                       </motion.button>
                     ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <motion.button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const next = openTagEditor === it.id ? null : it.id
+                  setOpenTagEditor(next)
+                  if (next) setEditingTags(it.tags || '')
+                }}
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.9 }}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  cursor: 'pointer',
+                  color: 'var(--muted)',
+                  fontSize: 10
+                }}
+                title="Edit tags"
+              >🏷️</motion.button>
+              <AnimatePresence>
+                {openTagEditor === it.id && (
+                  <motion.div
+                    key="tag-editor"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.12 }}
+                    style={{
+                      position: 'absolute',
+                      right: 8,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'var(--bg)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      padding: '6px 8px',
+                      zIndex: 1000,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      autoFocus
+                      value={editingTags}
+                      onChange={(e) => setEditingTags(e.target.value)}
+                      onBlur={() => { onTagsChange?.(it.id, editingTags); setOpenTagEditor(null) }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { onTagsChange?.(it.id, editingTags); setOpenTagEditor(null) }
+                        if (e.key === 'Escape') setOpenTagEditor(null)
+                      }}
+                      placeholder="tag1, tag2, ..."
+                      style={{
+                        border: 'none', outline: 'none', background: 'var(--bg-alt)',
+                        color: 'var(--text)', padding: '4px 6px', borderRadius: 4, fontSize: 12, width: 140,
+                      }}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>

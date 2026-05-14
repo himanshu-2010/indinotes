@@ -351,7 +351,11 @@ export default forwardRef<GraphEditorRef, Props>(function GraphEditor({ content,
       let prevWy: number | null = null;
       const jumpThreshold = (H / scale) * 3;
 
-      for (let px = 0; px <= W; px++) {
+      // Adaptive sampling: at default zoom (scale=60) sample every pixel.
+      // Zoomed out → fewer samples; zoomed in → pixel-perfect.
+      const pixelStep = Math.max(1, Math.round(60 / scale));
+
+      for (let px = 0; px <= W; px += pixelStep) {
         const wx = (px - ox) / scale;
         const wy = evalY(rhs, wx);
 
@@ -369,6 +373,17 @@ export default forwardRef<GraphEditorRef, Props>(function GraphEditor({ content,
         if (!penDown) { ctx.moveTo(px, py2); penDown = true; }
         else ctx.lineTo(px, py2);
         prevWy = wy;
+      }
+
+      // Ensure the final pixel is evaluated (loop may skip it at coarse zoom)
+      if ((W % pixelStep) !== 0) {
+        const wx = (W - ox) / scale;
+        const wy = evalY(rhs, wx);
+        if (wy !== null) {
+          const py2 = oy - wy * scale;
+          if (!penDown) { ctx.moveTo(W, py2); penDown = true; }
+          else ctx.lineTo(W, py2);
+        }
       }
       ctx.stroke();
     });
@@ -488,21 +503,43 @@ export default forwardRef<GraphEditorRef, Props>(function GraphEditor({ content,
           }}
         >☰</button>
       )}
+      {smallScreen && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 15,
+            background: 'rgba(0,0,0,0.4)',
+          }}
+        />
+      )}
       {sidebarOpen && (
         <div style={{
-          width: smallScreen ? '80%' : sidebarWidth,
-          maxWidth: smallScreen ? 320 : SIDEBAR_MAX,
-          minWidth: smallScreen ? 240 : SIDEBAR_MIN,
+          width: smallScreen ? '100%' : sidebarWidth,
+          maxWidth: smallScreen ? '100%' : SIDEBAR_MAX,
+          minWidth: smallScreen ? '100%' : SIDEBAR_MIN,
           background: "var(--panel)",
-          borderRight: "1px solid var(--border)",
+          borderRight: smallScreen ? 'none' : "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
-          position: smallScreen ? 'absolute' as const : 'relative' as const,
-          zIndex: smallScreen ? 10 : 'auto' as any,
-          height: '100%',
+          position: smallScreen ? 'fixed' as const : 'relative' as const,
+          bottom: smallScreen ? 0 : 'auto' as any,
+          left: smallScreen ? 0 : 'auto' as any,
+          right: smallScreen ? 0 : 'auto' as any,
+          zIndex: smallScreen ? 20 : 'auto' as any,
+          height: smallScreen ? '50vh' : '100%',
+          maxHeight: smallScreen ? '50vh' : 'none',
+          borderTopLeftRadius: smallScreen ? 12 : 0,
+          borderTopRightRadius: smallScreen ? 12 : 0,
+          boxShadow: smallScreen ? '0 -4px 20px rgba(0,0,0,0.4)' : 'none',
           flexShrink: 0,
           minHeight: 0,
         }}>
+          {smallScreen && (
+            <div style={{ padding: '6px 0', display: 'flex', justifyContent: 'center', flexShrink: 0, cursor: 'grab' }}
+              onPointerDown={() => setSidebarOpen(false)}>
+              <div style={{ width: 32, height: 4, borderRadius: 2, background: 'var(--muted)', opacity: 0.4 }} />
+            </div>
+          )}
           <div style={{
             display: 'flex',
             alignItems: 'center',

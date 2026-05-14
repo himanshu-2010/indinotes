@@ -7,6 +7,8 @@ export interface ChapterRow {
   priorityColor: string | null
   createdAt: number
   updatedAt: number
+  folderId: string | null
+  tags: string
 }
 
 export interface SyncQueueItem {
@@ -16,6 +18,14 @@ export interface SyncQueueItem {
   data?: string
   timestamp: number
   retries: number
+}
+
+export interface FolderRow {
+  id: string
+  name: string
+  parentId: string | null
+  createdAt: number
+  sortOrder: number
 }
 
 const db = new Dexie('IndiNotesDB')
@@ -28,6 +38,28 @@ db.version(3).stores({
   chapters: 'id, title, priorityColor, updatedAt',
   syncQueue: '++id, chapterId, operation, timestamp',
 })
+
+db.version(4).stores({
+  chapters: 'id, title, priorityColor, updatedAt, folderId',
+  syncQueue: '++id, chapterId, operation, timestamp',
+  folders: 'id, name, parentId, sortOrder',
+})
+
+db.version(5).stores({
+  chapters: 'id, title, priorityColor, updatedAt, folderId',
+  syncQueue: '++id, chapterId, operation, timestamp',
+  folders: 'id, name, parentId, sortOrder',
+  voiceNotes: '++id, chapterId, createdAt',
+})
+
+export interface VoiceNoteRow {
+  id?: number
+  chapterId: string
+  audio: Blob
+  duration: number
+  createdAt: number
+  name?: string
+}
 
 export default db
 

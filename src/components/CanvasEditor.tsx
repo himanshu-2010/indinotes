@@ -4,10 +4,10 @@ import useImage from 'use-image'
 
 const useImageFn = (useImage as any).default || useImage
 
-type Stroke = { id: string; type: 'stroke'; points: number[]; stroke: string; strokeWidth: number; mode: 'pen' | 'marker'; rotation?: number }
-type TextEl = { id: string; type: 'text'; x: number; y: number; text: string; fontSize: number; fill: string; fontStyle: string; fontFamily?: string; rotation?: number }
-type ShapeEl = { id: string; type: 'shape'; x: number; y: number; shape: 'rect' | 'circle' | 'triangle' | 'pentagon' | 'arrow'; width: number; height: number; fill: string; stroke: string; rotation?: number }
-type ImageEl = { id: string; type: 'image'; x: number; y: number; width: number; height: number; src: string; rotation?: number }
+type Stroke = { id: string; type: 'stroke'; points: number[]; stroke: string; strokeWidth: number; mode: 'pen' | 'marker' | 'highlighter'; rotation?: number; opacity?: number }
+type TextEl = { id: string; type: 'text'; x: number; y: number; text: string; fontSize: number; fill: string; fontStyle: string; fontFamily?: string; rotation?: number; opacity?: number }
+type ShapeEl = { id: string; type: 'shape'; x: number; y: number; shape: 'rect' | 'circle' | 'triangle' | 'pentagon' | 'arrow'; width: number; height: number; fill: string; stroke: string; rotation?: number; opacity?: number; strokeWidth?: number; dash?: number[] }
+type ImageEl = { id: string; type: 'image'; x: number; y: number; width: number; height: number; src: string; rotation?: number; opacity?: number }
 export type Element = Stroke | TextEl | ShapeEl | ImageEl
 
 const ImageComponent = ({ el, commonProps }: { el: ImageEl, commonProps: any }) => {
@@ -18,7 +18,7 @@ const ImageComponent = ({ el, commonProps }: { el: ImageEl, commonProps: any }) 
 interface DrawSettings {
   color: string
   width: number
-  mode: 'pen' | 'marker'
+  mode: 'pen' | 'marker' | 'highlighter'
 }
 
 interface TextSettings {
@@ -30,6 +30,7 @@ interface TextSettings {
 
 interface Props {
   elements?: Element[]
+  elementsRevision?: number
   onChange?: (elements: Element[]) => void
   tool: 'select' | 'pen' | 'text' | 'shape' | 'eraser' | 'image' | 'fill'
   shapeType: 'rect' | 'circle' | 'triangle' | 'pentagon' | 'arrow'
@@ -49,11 +50,14 @@ interface Props {
 export interface CanvasEditorRef {
   getStageImage: () => string | undefined
   resetView: () => void
+  acceptGraphSnapshot: (dataUrl: string) => void
+  getElementsBounds: () => { x: number; y: number; width: number; height: number } | null
 }
 
 const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   const { 
     elements = [], 
+    elementsRevision = 0,
     onChange, 
     tool, 
     shapeType, 
@@ -75,12 +79,15 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   const canvasWidth = Math.round(baseWidth * scale)
   const canvasHeight = Math.round(baseHeight * scale)
 
-  const [els, setEls] = useState<Element[]>(elements)
+  // Normalized Map-based element storage
+  const elementsMapRef = useRef<Map<string, Element>>(new Map())
+  const [, forceRender] = useState(0)
   const stageRef = useRef<any>(null)
   const transformerRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const isDrawingRef = useRef(false)
   const isErasingRef = useRef(false)
+  const lastStrokeIdRef = useRef<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [inputPos, setInputPos] = useState<{ x: number; y: number } | null>(null)
@@ -90,6 +97,19 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   const isPanningRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
   const pinchRef = useRef<{ d0: number; cx: number; cy: number; scale0: number } | null>(null)
+  const [eraserHoverId, setEraserHoverId] = useState<string | null>(null)
+  const shiftHeldRef = useRef(false)
+
+  // Initialize Map from props when revision changes (chapter switch or undo/redo)
+  useMemo(() => {
+    if (elements.length === 0 && elementsRevision === 0) return
+    elementsMapRef.current = new Map(elements.map(el => [el.id, el]))
+    lastStrokeIdRef.current = null
+  }, [elementsRevision, elements.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Force render counter — incremented after every element mutation
+  // eslint-disable-next-line react-hooks/refs
+  const els = Array.from(elementsMapRef.current.values())
 
   // Simplified stagePos to just use stageOffset
   const stagePos = stageOffset
@@ -103,6 +123,110 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
       setHasInitializedOffset(true)
     }
   }, [size, hasInitializedOffset, baseWidth, baseHeight, scale])
+
+  // Track Shift key for shape constraining
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeldRef.current = true }
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Shift') { shiftHeldRef.current = false; setEraserHoverId(null) } }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp) }
+  }, [])
+
+  // Drag-and-drop image files onto canvas
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onDragOver = (e: DragEvent) => { e.preventDefault(); e.stopPropagation() }
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault(); e.stopPropagation()
+      const file = e.dataTransfer?.files?.[0]
+      if (!file || !file.type.startsWith('image/')) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        const rawPos = stageRef.current?.getPointerPosition()
+        const x = rawPos ? (rawPos.x - stagePos.x) / scale : 50
+        const y = rawPos ? (rawPos.y - stagePos.y) / scale : 50
+        const id = 'img-' + Date.now().toString()
+        const newImage: Element = {
+          id, type: 'image', x, y, width: 200, height: 200,
+          src: reader.result as string,
+        }
+        elementsMapRef.current.set(id, newImage)
+        forceRender(k => k + 1)
+        onChange?.(Array.from(elementsMapRef.current.values()))
+      }
+      reader.readAsDataURL(file)
+    }
+    el.addEventListener('dragover', onDragOver)
+    el.addEventListener('drop', onDrop)
+    return () => { el.removeEventListener('dragover', onDragOver); el.removeEventListener('drop', onDrop) }
+  }, [onChange, stagePos, scale])
+
+  // Clear eraser hover when tool changes away from eraser
+  useEffect(() => {
+    if (tool !== 'eraser') setEraserHoverId(null)
+  }, [tool])
+
+  // Expose graph snapshot acceptor via ref
+  useImperativeHandle(ref, () => ({
+    getStageImage: () => {
+      if (!stageRef.current) return undefined
+      const oldNodes = transformerRef.current?.nodes() || []
+      transformerRef.current?.nodes([])
+      const dataUrl = stageRef.current.toDataURL({
+        pixelRatio: 2,
+        backgroundColor,
+        x: stagePos.x, y: stagePos.y,
+        width: canvasWidth, height: canvasHeight,
+      })
+      transformerRef.current?.nodes(oldNodes)
+      return dataUrl
+    },
+    resetView: () => {
+      setStageOffset({
+        x: (size.width - baseWidth) / 2,
+        y: (size.height - baseHeight) / 2,
+      })
+    },
+    acceptGraphSnapshot: (dataUrl: string) => {
+      const id = 'img-' + Date.now().toString()
+      const newImage: Element = {
+        id, type: 'image' as const,
+        x: 0, y: 0, width: 400, height: 300,
+        src: dataUrl, rotation: 0,
+      }
+      elementsMapRef.current.set(id, newImage)
+      forceRender(k => k + 1)
+      onChange?.(Array.from(elementsMapRef.current.values()))
+    },
+    getElementsBounds: () => {
+      const els = Array.from(elementsMapRef.current.values())
+      if (els.length === 0) return null
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (const el of els) {
+        if (el.type === 'stroke' && el.points.length >= 2) {
+          for (let i = 0; i < el.points.length; i += 2) {
+            minX = Math.min(minX, el.points[i]); maxX = Math.max(maxX, el.points[i])
+            minY = Math.min(minY, el.points[i + 1]); maxY = Math.max(maxY, el.points[i + 1])
+          }
+        } else if (el.type === 'text') {
+          minX = Math.min(minX, el.x); maxX = Math.max(maxX, el.x + el.text.length * el.fontSize * 0.6)
+          minY = Math.min(minY, el.y); maxY = Math.max(maxY, el.y + el.fontSize)
+        } else if (el.type === 'shape') {
+          const ex = el.shape === 'arrow' ? el.x + el.width : el.x + Math.abs(el.width)
+          const ey = el.shape === 'arrow' ? el.y + el.height : el.y + Math.abs(el.height)
+          minX = Math.min(minX, el.x, ex); maxX = Math.max(maxX, el.x, ex)
+          minY = Math.min(minY, el.y, ey); maxY = Math.max(maxY, el.y, ey)
+        } else if (el.type === 'image') {
+          minX = Math.min(minX, el.x); maxX = Math.max(maxX, el.x + el.width)
+          minY = Math.min(minY, el.y); maxY = Math.max(maxY, el.y + el.height)
+        }
+      }
+      if (!isFinite(minX)) return null
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+    },
+  }), [scale, stagePos, canvasWidth, canvasHeight, size.width, size.height, backgroundColor, baseWidth, baseHeight, onChange])
 
   useEffect(() => {
     const container = containerRef.current
@@ -212,11 +336,9 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
               height: 300,
               src: reader.result as string
             }
-            setEls(prev => {
-              const next = [...prev, newImage]
-              onChange?.(next)
-              return next
-            })
+            elementsMapRef.current.set(newImage.id, newImage)
+            forceRender(k => k + 1)
+            onChange?.(Array.from(elementsMapRef.current.values()))
           }
           reader.readAsDataURL(file)
           break
@@ -233,37 +355,6 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
       height: Math.max(canvasHeight, prev.height) 
     }))
   }, [canvasWidth, canvasHeight])
-
-  useImperativeHandle(ref, () => ({
-    getStageImage: () => {
-      if (!stageRef.current) return undefined
-      const oldNodes = transformerRef.current?.nodes() || []
-      transformerRef.current?.nodes([])
-      
-      // Capturing only the paper area
-      const dataUrl = stageRef.current.toDataURL({ 
-        pixelRatio: 2, 
-        backgroundColor,
-        x: stagePos.x,
-        y: stagePos.y,
-        width: canvasWidth,
-        height: canvasHeight
-      })
-      
-      transformerRef.current?.nodes(oldNodes)
-      return dataUrl
-    },
-    resetView: () => {
-      setStageOffset({
-        x: (size.width - baseWidth) / 2,
-        y: (size.height - baseHeight) / 2
-      })
-    }
-  }))
-
-  useEffect(() => {
-    setEls(elements)
-  }, [JSON.stringify(elements)])
 
   useEffect(() => {
     if (selectedId && transformerRef.current) {
@@ -300,7 +391,8 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
     if (node && node.name() !== 'background') {
       const id = node.id()
       if (id) {
-        setEls((prev) => prev.filter(e => e.id !== id))
+        elementsMapRef.current.delete(id)
+        forceRender(k => k + 1)
         if (selectedId === id) onSelectId(null)
       }
     }
@@ -338,15 +430,19 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
       if (tool === 'pen') {
         isDrawingRef.current = true
         const id = 'el-' + Date.now().toString() + Math.random().toString(36).slice(2, 6)
+        const hl = drawSettings.mode === 'highlighter'
         const stroke: Stroke = { 
           id, 
           type: 'stroke', 
           points: [pos.x, pos.y], 
-          stroke: drawSettings.color, 
-          strokeWidth: drawSettings.width,
-          mode: 'pen',
+          stroke: hl ? 'rgba(255, 242, 0, 0.35)' : drawSettings.color, 
+          strokeWidth: hl ? Math.max(drawSettings.width, 12) : drawSettings.width,
+          mode: drawSettings.mode,
+          opacity: hl ? 0.6 : 1,
         }
-        setEls((prev) => [...prev, stroke])
+        elementsMapRef.current.set(id, stroke)
+        lastStrokeIdRef.current = id
+        forceRender(k => k + 1)
       } else if (tool === 'shape') {
         isDrawingRef.current = true
         const id = 'el-' + Date.now().toString() + Math.random().toString(36).slice(2, 6)
@@ -361,7 +457,9 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
           fill: shapeColor,
           stroke: shapeColor,
         }
-        setEls((prev) => [...prev, shape])
+        elementsMapRef.current.set(id, shape)
+        lastStrokeIdRef.current = id
+        forceRender(k => k + 1)
       }
     } catch (err) {
       console.error('handleMouseDown error:', err)
@@ -387,6 +485,16 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
         return
       }
 
+      // Eraser hover preview
+      if (tool === 'eraser' && !isErasingRef.current) {
+        const stage = stageRef.current
+        if (!stage) return
+        const node = stage.getIntersection(rawPos)
+        const id = node && node.name() !== 'background' ? node.id() : null
+        setEraserHoverId(id)
+        return
+      }
+
       if (isErasingRef.current) {
         findAndRemoveElementAt(rawPos)
         return
@@ -394,26 +502,39 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
 
       if (!isDrawingRef.current) return
       
-      setEls((prevEls) => {
-        const last = prevEls[prevEls.length - 1]
-        if (!last) return prevEls
-        
-        if (last.type === 'stroke') {
-          const updated: Stroke = { 
-            ...last, 
-            points: [...last.points, pos.x, pos.y] 
-          }
-          return [...prevEls.slice(0, -1), updated]
-        } else if (last.type === 'shape') {
-          const updated: ShapeEl = {
-            ...last,
-            width: last.shape === 'arrow' ? pos.x - last.x : Math.abs(pos.x - last.x),
-            height: last.shape === 'arrow' ? pos.y - last.y : Math.abs(pos.y - last.y),
-          }
-          return [...prevEls.slice(0, -1), updated]
+      const lastId = lastStrokeIdRef.current
+      if (!lastId) return
+      const last = elementsMapRef.current.get(lastId)
+      if (!last) return
+      
+      if (last.type === 'stroke') {
+        const updated: Stroke = { 
+          ...last, 
+          points: [...last.points, pos.x, pos.y] 
         }
-        return prevEls
-      })
+        elementsMapRef.current.set(lastId, updated)
+        forceRender(k => k + 1)
+      } else if (last.type === 'shape') {
+        let w = last.shape === 'arrow' ? pos.x - last.x : Math.abs(pos.x - last.x)
+        let h = last.shape === 'arrow' ? pos.y - last.y : Math.abs(pos.y - last.y)
+        // Shift-key: constrain to perfect square / 45° arrow
+        if (shiftHeldRef.current) {
+          if (last.shape === 'arrow') {
+            const angle = Math.atan2(h, w)
+            const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4)
+            const len = Math.sqrt(w * w + h * h)
+            w = Math.cos(snapped) * len
+            h = Math.sin(snapped) * len
+          } else {
+            const maxDim = Math.max(w, h)
+            w = maxDim
+            h = maxDim
+          }
+        }
+        const updated: ShapeEl = { ...last, width: w, height: h }
+        elementsMapRef.current.set(lastId, updated)
+        forceRender(k => k + 1)
+      }
     } catch (err) {
       console.error('handleMouseMove error:', err)
     }
@@ -424,7 +545,9 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
       isDrawingRef.current = false
       isErasingRef.current = false
       isPanningRef.current = false
-      onChange?.(els)
+      lastStrokeIdRef.current = null
+      setEraserHoverId(null)
+      onChange?.(Array.from(elementsMapRef.current.values()))
     }
   }
 
@@ -449,24 +572,29 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
         y: (rawPos.y - stagePos.y) / scale 
       }
       
-      const text = prompt('Enter text:')
-      if (!text) return
-      
+      // Use an invisible input or shared input instead of prompt for professional feel
+      // For now, we trigger a state to show the input at this position
       const id = 'el-' + Date.now().toString() + Math.random().toString(36).slice(2, 6)
       const txt: TextEl = { 
         id, 
         type: 'text', 
         x: pos.x, 
         y: pos.y, 
-        text, 
+        text: '', 
         fontSize: textSettings.fontSize,
         fill: textSettings.color,
         fontStyle: textSettings.fontStyle,
         fontFamily: textSettings.fontFamily,
       }
-      const newEls = [...els, txt]
-      setEls(newEls)
-      onChange?.(newEls)
+      elementsMapRef.current.set(id, txt)
+      forceRender(k => k + 1)
+      setEditingId(id)
+      setEditingText('')
+      setInputPos({ x: pos.x, y: pos.y })
+      setTimeout(() => {
+        const input = document.getElementById('canvas-text-input') as HTMLInputElement | null
+        input?.focus()
+      }, 30)
     } catch (err) {
       console.error('handleCanvasClick error:', err)
     }
@@ -475,46 +603,29 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
   const handleTransformEnd = (e: any) => {
     const node = e.target
     const id = node.id()
-    const updated = els.map((el) => {
-      if (el.id === id) {
-        if (el.type === 'text') {
-          return {
-            ...el,
-            x: node.x(),
-            y: node.y(),
-            rotation: node.rotation(),
-          }
-        } else if (el.type === 'shape') {
-          return {
-            ...el,
-            x: node.x(),
-            y: node.y(),
-            width: Math.max(5, node.width() * node.scaleX()),
-            height: Math.max(5, node.height() * node.scaleY()),
-            rotation: node.rotation(),
-          }
-        } else if (el.type === 'image') {
-          return {
-            ...el,
-            x: node.x(),
-            y: node.y(),
-            width: Math.max(5, node.width() * node.scaleX()),
-            height: Math.max(5, node.height() * node.scaleY()),
-            rotation: node.rotation(),
-          }
-        }
-      }
-      return el
-    })
+    const el = elementsMapRef.current.get(id)
+    if (!el) return
+
+    let updated: Element
+    if (el.type === 'text') {
+      updated = { ...el, x: node.x(), y: node.y(), rotation: node.rotation() }
+    } else if (el.type === 'shape') {
+      updated = { ...el, x: node.x(), y: node.y(), width: Math.max(5, node.width() * node.scaleX()), height: Math.max(5, node.height() * node.scaleY()), rotation: node.rotation() }
+    } else if (el.type === 'image') {
+      updated = { ...el, x: node.x(), y: node.y(), width: Math.max(5, node.width() * node.scaleX()), height: Math.max(5, node.height() * node.scaleY()), rotation: node.rotation() }
+    } else {
+      return
+    }
     node.scaleX(1)
     node.scaleY(1)
-    setEls(updated as Element[])
-    onChange?.(updated as Element[])
+    elementsMapRef.current.set(id, updated)
+    forceRender(k => k + 1)
+    onChange?.(Array.from(elementsMapRef.current.values()))
   }
 
   const startEditing = (id: string) => {
-    const el = els.find((x) => x.id === id) as TextEl | undefined
-    if (!el) return
+    const el = elementsMapRef.current.get(id) as TextEl | undefined
+    if (!el || el.type !== 'text') return
     setEditingId(id)
     setEditingText(el.text)
     setInputPos({ x: Math.max(0, el.x), y: Math.max(0, el.y) })
@@ -527,9 +638,13 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
 
   const finishEditing = () => {
     if (!editingId) return
-    const updated = els.map((el) => (el.id === editingId && el.type === 'text' ? { ...el, text: editingText } : el))
-    setEls(updated)
-    onChange?.(updated)
+    const el = elementsMapRef.current.get(editingId)
+    if (el && el.type === 'text') {
+      const updated: TextEl = { ...el, text: editingText }
+      elementsMapRef.current.set(editingId, updated)
+      onChange?.(Array.from(elementsMapRef.current.values()))
+    }
+    forceRender(k => k + 1)
     setEditingId(null)
     setInputPos(null)
   }
@@ -563,19 +678,33 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
         onClick={handleCanvasClick}
         style={{ background: backgroundColor, cursor: tool === 'pen' ? 'crosshair' : tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : tool === 'select' ? 'default' : 'pointer', touchAction: 'none' }}
       >
-        <Layer x={stagePos.x} y={stagePos.y} scaleX={scale} scaleY={scale}>
-          <Rect name="background" x={-50000} y={-50000} width={100000} height={100000} fill={backgroundColor} listening={tool !== 'eraser'} />
+        {/* Static layer: background + grid — isolated from element re-renders */}
+        <Layer x={stagePos.x} y={stagePos.y} scaleX={scale} scaleY={scale} listening={false}>
+          <Rect name="background" x={-50000} y={-50000} width={100000} height={100000} fill={backgroundColor} />
           {gridElements}
-          
+        </Layer>
+        {/* Interaction layer: elements, transformer, overlays */}
+        <Layer x={stagePos.x} y={stagePos.y} scaleX={scale} scaleY={scale}>
           {els.map((el) => {
             const commonProps = {
               id: el.id,
               rotation: el.rotation || 0,
+              opacity: el.opacity ?? 1,
               draggable: tool === 'select',
               onDragEnd: (e: any) => {
-                const updated = els.map((el2) => (el2.id === el.id ? { ...el2, x: e.target.x(), y: e.target.y() } : el2))
-                setEls(updated as Element[])
-                onChange?.(updated as Element[])
+                const existing = elementsMapRef.current.get(el.id) as Record<string, unknown>
+                if (existing) {
+                  let nx = e.target.x(), ny = e.target.y()
+                  if (showGrid) {
+                    const step = 40
+                    nx = Math.round(nx / step) * step
+                    ny = Math.round(ny / step) * step
+                  }
+                  const moved = { ...existing, x: nx, y: ny } as Element
+                  elementsMapRef.current.set(el.id, moved)
+                  forceRender(k => k + 1)
+                  onChange?.(Array.from(elementsMapRef.current.values()))
+                }
               },
               onTransformEnd: handleTransformEnd,
             }
@@ -610,15 +739,15 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
               )
             } else if (el.type === 'shape') {
               if (el.shape === 'rect') {
-                return <Rect key={el.id} {...commonProps} x={el.x} y={el.y} width={el.width} height={el.height} fill={el.fill} stroke={el.stroke} strokeWidth={2} />
+                return <Rect key={el.id} {...commonProps} x={el.x} y={el.y} width={el.width} height={el.height} fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth ?? 2} dash={el.dash} />
               } else if (el.shape === 'circle') {
-                return <Circle key={el.id} {...commonProps} x={el.x} y={el.y} radius={Math.max(el.width, el.height) / 2} fill={el.fill} stroke={el.stroke} strokeWidth={2} />
+                return <Circle key={el.id} {...commonProps} x={el.x} y={el.y} radius={Math.max(el.width, el.height) / 2} fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth ?? 2} dash={el.dash} />
               } else if (el.shape === 'triangle') {
-                return <RegularPolygon key={el.id} {...commonProps} x={el.x} y={el.y} sides={3} radius={Math.max(el.width, el.height) / 2} fill={el.fill} stroke={el.stroke} strokeWidth={2} />
+                return <RegularPolygon key={el.id} {...commonProps} x={el.x} y={el.y} sides={3} radius={Math.max(el.width, el.height) / 2} fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth ?? 2} dash={el.dash} />
               } else if (el.shape === 'pentagon') {
-                return <RegularPolygon key={el.id} {...commonProps} x={el.x} y={el.y} sides={5} radius={Math.max(el.width, el.height) / 2} fill={el.fill} stroke={el.stroke} strokeWidth={2} />
+                return <RegularPolygon key={el.id} {...commonProps} x={el.x} y={el.y} sides={5} radius={Math.max(el.width, el.height) / 2} fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth ?? 2} dash={el.dash} />
               } else if (el.shape === 'arrow') {
-                return <Arrow key={el.id} {...commonProps} points={[el.x, el.y, el.x + el.width, el.y + el.height]} fill={el.fill} stroke={el.stroke} strokeWidth={2} />
+                return <Arrow key={el.id} {...commonProps} points={[el.x, el.y, el.x + el.width, el.y + el.height]} fill={el.fill} stroke={el.stroke} strokeWidth={el.strokeWidth ?? 2} dash={el.dash} />
               }
             } else if (el.type === 'image') {
               return <ImageComponent key={el.id} el={el} commonProps={commonProps} />
@@ -626,21 +755,75 @@ const CanvasEditor = forwardRef<CanvasEditorRef, Props>((props, ref) => {
             return null
           })}
           {tool === 'select' && <Transformer ref={transformerRef} rotateEnabled={true} flipEnabled={false} boundBoxFunc={(oldBox, newBox) => (Math.abs(newBox.width) < 5 || Math.abs(newBox.height) < 5 ? oldBox : newBox)} />}
+          {/* Eraser hover highlight */}
+          {eraserHoverId && tool === 'eraser' && (() => {
+            const hoveredEl = elementsMapRef.current.get(eraserHoverId)
+            if (!hoveredEl) return null
+            let bx = 0, by = 0, bw = 10, bh = 10
+            if (hoveredEl.type === 'stroke' && hoveredEl.points.length >= 2) {
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+              for (let i = 0; i < hoveredEl.points.length; i += 2) {
+                minX = Math.min(minX, hoveredEl.points[i]); maxX = Math.max(maxX, hoveredEl.points[i])
+                minY = Math.min(minY, hoveredEl.points[i + 1]); maxY = Math.max(maxY, hoveredEl.points[i + 1])
+              }
+              bx = minX; by = minY; bw = maxX - minX; bh = maxY - minY
+            } else if (hoveredEl.type === 'text') {
+              bx = hoveredEl.x; by = hoveredEl.y; bw = hoveredEl.text.length * hoveredEl.fontSize * 0.6; bh = hoveredEl.fontSize
+            } else if (hoveredEl.type === 'shape') {
+              bx = hoveredEl.x; by = hoveredEl.y; bw = hoveredEl.width; bh = hoveredEl.height
+            } else if (hoveredEl.type === 'image') {
+              bx = hoveredEl.x; by = hoveredEl.y; bw = hoveredEl.width; bh = hoveredEl.height
+            }
+            const pad = 6
+            return <Rect key="__eraser-hover" x={bx - pad} y={by - pad} width={bw + pad * 2} height={bh + pad * 2} fill="rgba(255,0,0,0.12)" stroke="rgba(255,0,0,0.5)" strokeWidth={2 / scale} listening={false} />
+          })()}
         </Layer>
       </Stage>
 
       {inputPos && (
-        <input
+        <textarea
           id="canvas-text-input"
-          style={{ position: 'absolute', left: inputPos.x * scale + stagePos.x, top: inputPos.y * scale + stagePos.y, zIndex: 10, padding: `${4 * scale}px ${8 * scale}px`, fontSize: `${16 * scale}px`, border: '1px solid var(--accent)', outline: 'none', borderRadius: 4 * scale }}
+          autoFocus
+          style={{ 
+            position: 'absolute', 
+            left: inputPos.x * scale + stagePos.x, 
+            top: inputPos.y * scale + stagePos.y, 
+            zIndex: 100, 
+            padding: `${4 * scale}px ${8 * scale}px`, 
+            fontSize: `${16 * scale}px`, 
+            border: '1px solid var(--accent)', 
+            outline: 'none', 
+            borderRadius: 4 * scale,
+            background: backgroundColor,
+            color: textSettings.color,
+            cursor: 'text',
+            resize: 'none',
+            overflow: 'hidden',
+            whiteSpace: 'pre-wrap',
+            wordWrap: 'break-word',
+            minWidth: `${100 * scale}px`
+          }}
           value={editingText}
-          onChange={(e) => setEditingText(e.target.value)}
+          onChange={(e) => {
+            setEditingText(e.target.value)
+            e.target.style.height = 'auto'
+            e.target.style.height = e.target.scrollHeight + 'px'
+          }}
           onBlur={finishEditing}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') finishEditing()
+            if (e.key === 'Enter' && e.ctrlKey) {
+              e.preventDefault()
+              finishEditing()
+            }
             if (e.key === 'Escape') {
               setEditingId(null)
               setInputPos(null)
+            }
+          }}
+          ref={(el) => {
+            if (el) {
+              el.style.height = 'auto'
+              el.style.height = el.scrollHeight + 'px'
             }
           }}
         />

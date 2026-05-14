@@ -142,6 +142,8 @@ async function pullRemoteChanges() {
         priorityColor: r.priority_color || null,
         createdAt: r.created_at || Date.now(),
         updatedAt: r.updated_at || Date.now(),
+        folderId: null,
+        tags: '',
       }
       await db.table('chapters').put(chapter)
     } else if ((r.updated_at || 0) > local.updatedAt) {
@@ -152,6 +154,8 @@ async function pullRemoteChanges() {
         priorityColor: r.priority_color || local.priorityColor,
         createdAt: r.created_at || local.createdAt,
         updatedAt: r.updated_at || local.updatedAt,
+        folderId: local.folderId,
+        tags: local.tags,
       })
     }
   }

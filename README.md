@@ -8,7 +8,7 @@ A local-first student notebook with a vector canvas for drawing and an interacti
 
 ![Canvas editor](public/screenshots/canvas-editor.png)
 
-- **Canvas workspace** — draw freehand strokes, add text, shapes, and images on an infinite canvas with zoom and pan. Pen, eraser, shape, text, and fill tools. Grid overlay with customizable background color.
+- **Canvas workspace** — draw freehand strokes, add text, shapes, and images on an infinite canvas with zoom and pan. Pen, eraser, shape, text, and fill tools. Features a smart-switching text tool: start typing to automatically enable text mode. Grid overlay with customizable background color.
 
 ![Graphing calculator](public/screenshots/graph-editor.png)
 
@@ -16,11 +16,11 @@ A local-first student notebook with a vector canvas for drawing and an interacti
 
 ![Chapter organization](public/screenshots/sidebar.png)
 
-- **Chapter organization** — Sidebar with chapter list, priority color tags, multi-select delete, search, and drag-and-drop reordering.
-- **Export** — Export canvas/graph as PNG, PDF, or full chapter JSON. Bulk backup and restore all chapters.
+- **Chapter organization** — Sidebar with chapter list, priority color tags, folders, multi-select delete, search, and drag-and-drop reordering.
+- **Export** — Export canvas/graph as PNG, PDF (multi-page), SVG, or full chapter JSON. Bulk backup and restore all chapters.
 - **Undo/Redo** — 25-step history stack with keyboard shortcuts (Ctrl+Z, Ctrl+Y).
 - **Settings** — Dark/light theme toggle, customizable default pen color and canvas background.
-- **Cloud sync** (optional) — When Supabase credentials are configured, changes sync automatically via the `syncQueue` table. On reconnect, queued changes push to Supabase and remote changes pull in.
+- **Student tools** — Built-in Pomodoro timer, voice notes recording, 70+ Google Fonts, PDF annotation import.
 - **Desktop app** — Electron wrapper available for persistent local storage (data won't be lost on browser cache clear). Auto-updater checks GitHub for new versions.
 
 ## Tech Stack
@@ -36,7 +36,6 @@ A local-first student notebook with a vector canvas for drawing and an interacti
 | Desktop | Electron, electron-builder |
 | Mobile | Capacitor, Android SDK |
 | PWA | vite-plugin-pwa, Workbox |
-| Cloud (opt) | Supabase |
 
 ## Getting Started
 
@@ -109,23 +108,11 @@ This repo includes a `vercel.json` for zero-config deployment. Connect your GitH
 
 The PWA will be installable on mobile via "Add to Home Screen" when accessed over HTTPS.
 
-### Supabase Sync (optional)
-
-To enable cloud sync, create a free Supabase project and add a `chapters` table with columns matching the Dexie schema. Then create a `.env` file:
-
-```
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
-
-Without these variables, the app runs fully locally. No data is sent anywhere.
-
 ## Data Persistence
 
 | Runtime | Data Safety |
 |---|---|
 | Electron desktop app | Persistent until uninstall (stored in Chromium profile) |
 | Browser PWA / dev server | Can be lost on cache clear or quota eviction |
-| Browser + Supabase sync | Local copy backed up to cloud |
 
-For real note-taking, use the Electron app or configure Supabase sync.
+For real note-taking, use the Electron app.
